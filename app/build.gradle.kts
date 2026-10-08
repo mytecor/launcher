@@ -6,10 +6,20 @@ android {
         applicationId = "su.myt.home"
         minSdk = 30
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.1.1"
+        versionCode = 4
+        versionName = "1.1.2"
         providers.gradleProperty("releaseVersionCode").orNull?.toIntOrNull()?.let { versionCode = it }
         providers.gradleProperty("releaseVersion").orNull?.let { versionName = it }
+    }
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
     }
     val releaseKeystore = providers.environmentVariable("ANDROID_KEYSTORE_PATH").orNull
     if (releaseKeystore != null) {

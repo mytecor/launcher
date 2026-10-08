@@ -59,6 +59,7 @@ class MainActivity : Activity() {
     private lateinit var empty: TextView
     private lateinit var adapter: AppAdapter
     private lateinit var itemTouchHelper: ItemTouchHelper
+    private val imeAnimations = mutableSetOf<WindowInsetsAnimation>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -74,7 +75,6 @@ class MainActivity : Activity() {
 
         // The regular insets dispatch contains the animation's END state.
         // While IME is moving, use its per-frame insets instead of jumping there.
-        val imeAnimations = mutableSetOf<WindowInsetsAnimation>()
         fun applyInsets(insets: WindowInsets) {
             val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
             val ime = insets.getInsets(WindowInsets.Type.ime())
@@ -87,7 +87,9 @@ class MainActivity : Activity() {
         }
         root.setWindowInsetsAnimationCallback(object : WindowInsetsAnimation.Callback(DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
             override fun onPrepare(animation: WindowInsetsAnimation) {
-                if (animation.typeMask and WindowInsets.Type.ime() != 0) imeAnimations.add(animation)
+                if (animation.typeMask and WindowInsets.Type.ime() != 0) {
+                    imeAnimations.add(animation)
+                }
             }
 
             override fun onProgress(insets: WindowInsets, runningAnimations: MutableList<WindowInsetsAnimation>): WindowInsets {
