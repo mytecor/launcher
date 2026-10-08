@@ -6,7 +6,7 @@ A minimalist Android home screen written in Kotlin for Android 11+ (API 30).
 - Fuzzy app name search: supports substrings, missing characters, and up to two typos for longer queries.
 - Most relevant match is positioned at the bottom, directly above the search bar. Pressing Enter launches it.
 - Search bar and app list are anchored to the bottom of the visible area above the keyboard.
-- Long-press to pin/unpin an app. Pinned state persists across launches.
+- Long-press in search to pin/unpin an app. Favorite apps on the home screen can be reordered via drag-and-drop on long press. Pinned state and custom order persist across launches.
 - Keyboard is requested upon opening or returning to Home. Users can dismiss it using the system back button; Android manages the final IME state.
 - Material You dynamic system colors on Android 12+; light and dark theme tracks the system setting. Android 11 uses fallback colors. Keyboard styling is handled by the keyboard itself.
 - Full work profile and multi-user support: discovers, badges, and launches apps across all profiles (personal, work, cloned) using `LauncherApps` and `UserManager`. Pinned apps track profile IDs independently.
@@ -26,7 +26,7 @@ APK output: `app/build/outputs/apk/debug/app-debug.apk`.
 ## Installation
 
 Install the APK on your device. Set Home as your default launcher in Android Settings → Apps → Default apps → Home app.
-Type an app name and long-press the search result to pin it to your home screen.
+Type an app name and long-press the search result to pin it to your home screen. On the home screen, long-press and drag apps to reorder them.
 
 ## Testing on Device
 

@@ -8,7 +8,9 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.LauncherApps
 import android.content.res.ColorStateList
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
@@ -22,10 +24,18 @@ import android.text.TextWatcher
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
+import android.view.ViewGroup
+import android.view.ViewOutlineProvider
 import android.view.WindowInsets
 import android.view.WindowInsetsAnimation
 import android.view.inputmethod.EditorInfo
 import android.widget.*
+import androidx.recyclerview.widget.DefaultItemAnimator
+import androidx.recyclerview.widget.ItemTouchHelper
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import org.json.JSONArray
+import java.util.Collections
 import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
@@ -45,15 +55,34 @@ class MainActivity : Activity() {
     private val muted by lazy { getColor(R.color.launcher_muted) }
     private val worker = Executors.newSingleThreadExecutor()
     private val prefs by lazy { getSharedPreferences("launcher", MODE_PRIVATE) }
-    private val pinned by lazy { prefs.getStringSet("pinned", emptySet())!!.toMutableSet() }
+    private val pinnedOrder: MutableList<String> by lazy {
+        val saved = prefs.getString("pinned_order", null)
+        if (saved != null) {
+            try {
+                val json = JSONArray(saved)
+                val list = mutableListOf<String>()
+                for (i in 0 until json.length()) {
+                    list.add(json.getString(i))
+                }
+                list
+            } catch (_: Exception) {
+                mutableListOf()
+            }
+        } else {
+            val legacy = prefs.getStringSet("pinned", emptySet()) ?: emptySet()
+            legacy.toMutableList()
+        }
+    }
     private var apps = emptyList<App>()
-    private var shown = emptyList<App>()
+    private var shown: MutableList<App> = mutableListOf()
+    private var isSearching = false
     private var loading = true
     private lateinit var clearButton: ImageButton
     private lateinit var search: EditText
-    private lateinit var list: ListView
+    private lateinit var list: RecyclerView
     private lateinit var empty: TextView
     private lateinit var adapter: AppAdapter
+    private lateinit var itemTouchHelper: ItemTouchHelper
 
     private val launcherAppsCallback = object : LauncherApps.Callback() {
         override fun onPackageRemoved(packageName: String?, user: UserHandle?) = reloadApps()
@@ -77,6 +106,8 @@ class MainActivity : Activity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(backgroundColor)
+            clipChildren = false
+            clipToPadding = false
         }
         // The regular insets dispatch contains the animation's END state.
         // While IME is moving, use its per-frame insets instead of jumping there.
@@ -106,38 +137,102 @@ class MainActivity : Activity() {
                 }
             }
         })
-        val area = FrameLayout(this)
+        val area = FrameLayout(this).apply {
+            clipChildren = false
+            clipToPadding = false
+        }
         root.addView(area, LinearLayout.LayoutParams(-1, 0, 1f))
         adapter = AppAdapter()
-        list = ListView(this).apply {
-            divider = ColorDrawable(Color.TRANSPARENT)
-            dividerHeight = dp(8)
-            setSelector(ColorDrawable(Color.TRANSPARENT))
-            isStackFromBottom = true
-            transcriptMode = android.widget.AbsListView.TRANSCRIPT_MODE_DISABLED
+        val layoutManager = LinearLayoutManager(this).apply {
+            stackFromEnd = true
+        }
+        list = RecyclerView(this).apply {
+            this.layoutManager = layoutManager
+            this.adapter = this@MainActivity.adapter
             isVerticalScrollBarEnabled = false
-            adapter = this@MainActivity.adapter
-            setOnItemClickListener { _, _, position, _ -> launch(shown[position]) }
-            setOnItemLongClickListener { _, _, position, _ ->
-                val app = shown[position]
-                val added = if (isPinned(app)) {
-                    pinned.remove(app.id)
-                    pinned.remove(app.component.flattenToString())
-                    false
-                } else {
-                    pinned.add(app.id)
-                    true
+            clipChildren = false
+            clipToPadding = false
+            itemAnimator = DefaultItemAnimator()
+            addItemDecoration(object : RecyclerView.ItemDecoration() {
+                override fun getItemOffsets(outRect: Rect, view: View, parent: RecyclerView, state: RecyclerView.State) {
+                    val pos = parent.getChildAdapterPosition(view)
+                    if (pos != RecyclerView.NO_POSITION && pos > 0) {
+                        outRect.top = dp(8)
+                    }
                 }
-                prefs.edit().putStringSet("pinned", pinned.toSet()).apply()
-                render()
-                Toast.makeText(
-                    this@MainActivity,
-                    getString(if (added) R.string.app_pinned else R.string.app_unpinned, app.badgedLabel),
-                    Toast.LENGTH_SHORT
-                ).show()
-                true
+            })
+        }
+        val touchCallback = object : ItemTouchHelper.SimpleCallback(
+            ItemTouchHelper.UP or ItemTouchHelper.DOWN,
+            0
+        ) {
+            override fun isLongPressDragEnabled(): Boolean = !isSearching
+
+            override fun onMove(
+                recyclerView: RecyclerView,
+                viewHolder: RecyclerView.ViewHolder,
+                target: RecyclerView.ViewHolder
+            ): Boolean {
+                if (isSearching) return false
+                val from = viewHolder.bindingAdapterPosition
+                val to = target.bindingAdapterPosition
+                if (from == RecyclerView.NO_POSITION || to == RecyclerView.NO_POSITION) return false
+                if (from < to) {
+                    for (i in from until to) {
+                        Collections.swap(shown, i, i + 1)
+                    }
+                } else {
+                    for (i in from downTo to + 1) {
+                        Collections.swap(shown, i, i - 1)
+                    }
+                }
+                pinnedOrder.clear()
+                pinnedOrder.addAll(shown.map { it.id })
+                adapter.notifyItemMoved(from, to)
+                return true
+            }
+
+            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {}
+
+            override fun onSelectedChanged(viewHolder: RecyclerView.ViewHolder?, actionState: Int) {
+                super.onSelectedChanged(viewHolder, actionState)
+                if (actionState == ItemTouchHelper.ACTION_STATE_DRAG) {
+                    viewHolder?.itemView?.apply {
+                        outlineAmbientShadowColor = Color.TRANSPARENT
+                        outlineSpotShadowColor = Color.TRANSPARENT
+                        outlineProvider = null
+                        translationZ = 1f
+                    }
+                }
+            }
+
+            override fun onChildDraw(
+                c: Canvas,
+                recyclerView: RecyclerView,
+                viewHolder: RecyclerView.ViewHolder,
+                dX: Float,
+                dY: Float,
+                actionState: Int,
+                isCurrentlyActive: Boolean
+            ) {
+                viewHolder.itemView.translationX = dX
+                viewHolder.itemView.translationY = dY
+            }
+
+            override fun clearView(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder) {
+                super.clearView(recyclerView, viewHolder)
+                viewHolder.itemView.apply {
+                    translationX = 0f
+                    translationY = 0f
+                    translationZ = 0f
+                    elevation = 0f
+                    outlineProvider = ViewOutlineProvider.BACKGROUND
+                }
+                savePinned()
             }
         }
+        itemTouchHelper = ItemTouchHelper(touchCallback)
+        itemTouchHelper.attachToRecyclerView(list)
         area.addView(list, FrameLayout.LayoutParams(-1, -1))
         empty = TextView(this).apply {
             setTextColor(muted)
@@ -273,8 +368,16 @@ class MainActivity : Activity() {
         if (hasWindowFocus()) search.post(requestKeyboard)
     }
 
+    private fun savePinned() {
+        val json = JSONArray(pinnedOrder)
+        prefs.edit()
+            .putString("pinned_order", json.toString())
+            .putStringSet("pinned", pinnedOrder.toSet())
+            .apply()
+    }
+
     private fun isPinned(app: App): Boolean {
-        return app.id in pinned || (app.userSerial == 0L && app.component.flattenToString() in pinned)
+        return app.id in pinnedOrder || (app.userSerial == 0L && app.component.flattenToString() in pinnedOrder)
     }
 
     private fun reloadApps() {
@@ -357,6 +460,13 @@ class MainActivity : Activity() {
 
             runOnUiThread {
                 if (!isDestroyed) {
+                    if (!prefs.contains("pinned_order") && pinnedOrder.isNotEmpty()) {
+                        val existingIds = pinnedOrder.toSet()
+                        val sorted = finalApps.filter { it.id in existingIds || it.component.flattenToString() in existingIds }.map { it.id }
+                        pinnedOrder.clear()
+                        pinnedOrder.addAll(sorted)
+                        savePinned()
+                    }
                     apps = finalApps
                     loading = false
                     render()
@@ -382,7 +492,16 @@ class MainActivity : Activity() {
             clearButton.visibility = if (search.text.isNotEmpty()) View.VISIBLE else View.INVISIBLE
         }
         val query = search.text.toString().trim().take(100)
-        shown = if (query.isEmpty()) apps.filter { isPinned(it) } else {
+        isSearching = query.isNotEmpty()
+        shown = if (!isSearching) {
+            val appMap = apps.associateBy { it.id }
+            val homeApps = mutableListOf<App>()
+            for (id in pinnedOrder) {
+                val app = appMap[id] ?: apps.find { it.userSerial == 0L && it.component.flattenToString() == id }
+                if (app != null) homeApps.add(app)
+            }
+            homeApps
+        } else {
             apps.mapNotNull { app -> matchScore(app, query)?.let { app to it } }
                 .sortedWith(
                     compareByDescending<Pair<App, Int>> { it.second }
@@ -390,7 +509,7 @@ class MainActivity : Activity() {
                         .thenBy { it.first.userSerial }
                         .thenBy { it.first.id }
                 )
-                .map { it.first }.reversed()
+                .map { it.first }.reversed().toMutableList()
         }
         adapter.notifyDataSetChanged()
         empty.text = when {
@@ -399,7 +518,7 @@ class MainActivity : Activity() {
             else -> ""
         }
         empty.visibility = if (shown.isEmpty() && empty.text.isNotEmpty()) View.VISIBLE else View.GONE
-        if (shown.isNotEmpty()) list.setSelection(shown.lastIndex)
+        if (shown.isNotEmpty()) list.scrollToPosition(shown.lastIndex)
     }
 
     private fun launch(app: App) {
@@ -423,12 +542,72 @@ class MainActivity : Activity() {
         }
     }
 
-    private inner class AppAdapter : BaseAdapter() {
-        override fun getCount() = shown.size
-        override fun getItem(position: Int) = shown[position]
-        override fun getItemId(position: Int) = position.toLong()
-        override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup): View {
-            val row = convertView as? LinearLayout ?: LinearLayout(this@MainActivity).apply {
+    private inner class AppAdapter : RecyclerView.Adapter<AppAdapter.ViewHolder>() {
+        inner class ViewHolder(
+            val row: LinearLayout,
+            val iconView: ImageView,
+            val labelView: TextView,
+            val starView: ImageView
+        ) : RecyclerView.ViewHolder(row) {
+            init {
+                row.setOnClickListener {
+                    val pos = bindingAdapterPosition
+                    if (pos != RecyclerView.NO_POSITION && pos in shown.indices) {
+                        launch(shown[pos])
+                    }
+                }
+                row.setOnLongClickListener {
+                    if (isSearching) {
+                        val pos = bindingAdapterPosition
+                        if (pos != RecyclerView.NO_POSITION && pos in shown.indices) {
+                            val app = shown[pos]
+                            val added = if (isPinned(app)) {
+                                pinnedOrder.removeAll { it == app.id || (app.userSerial == 0L && it == app.component.flattenToString()) }
+                                false
+                            } else {
+                                pinnedOrder.add(app.id)
+                                true
+                            }
+                            savePinned()
+                            render()
+                            Toast.makeText(
+                                this@MainActivity,
+                                getString(if (added) R.string.app_pinned else R.string.app_unpinned, app.badgedLabel),
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                        true
+                    } else {
+                        false
+                    }
+                }
+            }
+        }
+
+        override fun getItemCount() = shown.size
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
+            val iconView = ImageView(this@MainActivity)
+            val labelView = TextView(this@MainActivity).apply {
+                setTextColor(foregroundColor)
+                textSize = 19f
+                includeFontPadding = false
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(12), 0, dp(12), 0)
+                maxLines = 2
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            }
+            val starView = ImageView(this@MainActivity).apply {
+                setImageResource(R.drawable.ic_star)
+                imageTintList = ColorStateList.valueOf(getColor(R.color.launcher_accent))
+                scaleType = ImageView.ScaleType.CENTER
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }
+            val row = LinearLayout(this@MainActivity).apply {
+                layoutParams = RecyclerView.LayoutParams(
+                    RecyclerView.LayoutParams.MATCH_PARENT,
+                    RecyclerView.LayoutParams.WRAP_CONTENT
+                )
                 gravity = Gravity.CENTER_VERTICAL
                 minimumHeight = dp(64)
                 isBaselineAligned = false
@@ -445,35 +624,25 @@ class MainActivity : Activity() {
                     surface, mask
                 )
                 setPadding(dp(16), dp(12), dp(16), dp(12))
-                addView(ImageView(this@MainActivity), LinearLayout.LayoutParams(dp(36), dp(36)))
-                addView(TextView(this@MainActivity).apply {
-                    setTextColor(foregroundColor)
-                    textSize = 19f
-                    includeFontPadding = false
-                    gravity = Gravity.CENTER_VERTICAL
-                    setPadding(dp(12), 0, dp(12), 0)
-                    maxLines = 2
-                    ellipsize = android.text.TextUtils.TruncateAt.END
-                }, LinearLayout.LayoutParams(0, -2, 1f))
-                addView(ImageView(this@MainActivity).apply {
-                    setImageResource(R.drawable.ic_star)
-                    imageTintList = ColorStateList.valueOf(getColor(R.color.launcher_accent))
-                    scaleType = ImageView.ScaleType.CENTER
-                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-                }, LinearLayout.LayoutParams(dp(36), dp(36)))
+                addView(iconView, LinearLayout.LayoutParams(dp(36), dp(36)))
+                addView(labelView, LinearLayout.LayoutParams(0, -2, 1f))
+                addView(starView, LinearLayout.LayoutParams(dp(36), dp(36)))
             }
+            return ViewHolder(row, iconView, labelView, starView)
+        }
+
+        override fun onBindViewHolder(holder: ViewHolder, position: Int) {
             val app = shown[position]
-            (row.getChildAt(0) as ImageView).setImageDrawable(
+            holder.iconView.setImageDrawable(
                 app.icon ?: try {
                     packageManager.getActivityIcon(app.component)
                 } catch (_: Exception) {
                     packageManager.defaultActivityIcon
                 }
             )
-            (row.getChildAt(1) as TextView).text = app.label
-            row.getChildAt(2).visibility = if (isPinned(app)) View.VISIBLE else View.INVISIBLE
-            row.contentDescription = if (isPinned(app)) getString(R.string.pinned_description, app.badgedLabel) else app.badgedLabel
-            return row
+            holder.labelView.text = app.label
+            holder.starView.visibility = if (isSearching && isPinned(app)) View.VISIBLE else View.GONE
+            holder.row.contentDescription = if (isPinned(app)) getString(R.string.pinned_description, app.badgedLabel) else app.badgedLabel
         }
     }
 
