@@ -16,6 +16,7 @@ import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsAnimation
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageButton
@@ -242,6 +243,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        if (::search.isInitialized) showKeyboard()
         reloadApps()
     }
 
@@ -276,6 +278,7 @@ class MainActivity : Activity() {
     private val requestKeyboard = Runnable {
         if (hasWindowFocus() && search.rootWindowInsets?.isVisible(WindowInsets.Type.ime()) != true) {
             window.insetsController?.show(WindowInsets.Type.ime())
+            getSystemService(InputMethodManager::class.java)?.showSoftInput(search, 0)
         }
     }
 
@@ -287,7 +290,14 @@ class MainActivity : Activity() {
     private fun showKeyboard() {
         search.requestFocus()
         search.removeCallbacks(requestKeyboard)
-        if (hasWindowFocus()) search.post(requestKeyboard)
+        if (hasWindowFocus()) {
+            if (search.rootWindowInsets?.isVisible(WindowInsets.Type.ime()) != true) {
+                window.insetsController?.show(WindowInsets.Type.ime())
+                getSystemService(InputMethodManager::class.java)?.showSoftInput(search, 0)
+            }
+        } else {
+            search.post(requestKeyboard)
+        }
     }
 
     private fun reloadApps() {
