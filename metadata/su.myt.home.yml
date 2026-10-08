@@ -14,7 +14,7 @@ Repo: https://github.com/mytecor/launcher.git
 Builds:
   - versionName: 1.1.1
     versionCode: 3
-    commit: v1.1.1
+    commit: 95ff6009205f1ac78d5e7a54c21fe8a0ecfabcdd
     subdir: app
     gradle:
       - yes
