@@ -6,7 +6,7 @@
         </intent>
     </queries>
     <application android:theme="@style/AppTheme" android:label="@string/app_name" android:allowBackup="false" android:fullBackupContent="false" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher" android:dataExtractionRules="@xml/data_extraction_rules" android:supportsRtl="true">
-        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTask" android:enableOnBackInvokedCallback="false" tools:ignore="UnusedAttribute" android:windowSoftInputMode="stateAlwaysVisible|adjustNothing">
+        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTask" android:enableOnBackInvokedCallback="false" tools:ignore="UnusedAttribute" android:windowSoftInputMode="stateUnchanged|adjustNothing">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.HOME" />

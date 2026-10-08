@@ -59,7 +59,6 @@ class MainActivity : Activity() {
     private lateinit var empty: TextView
     private lateinit var adapter: AppAdapter
     private lateinit var itemTouchHelper: ItemTouchHelper
-    private val imeAnimations = mutableSetOf<WindowInsetsAnimation>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -73,12 +72,19 @@ class MainActivity : Activity() {
             clipToPadding = false
         }
 
-        // The regular insets dispatch contains the animation's END state.
-        // While IME is moving, use its per-frame insets instead of jumping there.
+        val imeAnimations = mutableSetOf<WindowInsetsAnimation>()
+        var lastImeHeight = 0
         fun applyInsets(insets: WindowInsets) {
             val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
             val ime = insets.getInsets(WindowInsets.Type.ime())
-            root.setPadding(bars.left + dp(16), bars.top + dp(16), bars.right + dp(16), maxOf(bars.bottom, ime.bottom) + dp(16))
+            if (ime.bottom > 0) lastImeHeight = ime.bottom
+            val isImeVisible = insets.isVisible(WindowInsets.Type.ime())
+            val effectiveImeBottom = when {
+                ime.bottom > 0 -> ime.bottom
+                isImeVisible -> lastImeHeight
+                else -> 0
+            }
+            root.setPadding(bars.left + dp(16), bars.top + dp(16), bars.right + dp(16), maxOf(bars.bottom, effectiveImeBottom) + dp(16))
         }
 
         root.setOnApplyWindowInsetsListener { _, insets ->
@@ -292,24 +298,20 @@ class MainActivity : Activity() {
     private fun showKeyboard() {
         search.requestFocus()
         search.removeCallbacks(requestKeyboard)
-        if (hasWindowFocus()) {
-            if (search.rootWindowInsets?.isVisible(WindowInsets.Type.ime()) != true) {
-                window.insetsController?.show(WindowInsets.Type.ime())
-                getSystemService(InputMethodManager::class.java)?.showSoftInput(search, 0)
-            }
-        } else {
-            search.post(requestKeyboard)
-        }
+        window.insetsController?.show(WindowInsets.Type.ime())
+        getSystemService(InputMethodManager::class.java)?.showSoftInput(search, 0)
     }
 
     private fun reloadApps() {
         appRepository.loadApps { loaded ->
             runOnUiThread {
                 if (!isDestroyed) {
-                    pinnedManager.syncWithLoadedApps(loaded)
-                    allApps = loaded
-                    loading = false
-                    render()
+                    if (allApps != loaded || loading) {
+                        pinnedManager.syncWithLoadedApps(loaded)
+                        allApps = loaded
+                        loading = false
+                        render()
+                    }
                 }
             }
         }
