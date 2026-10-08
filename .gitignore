@@ -1,0 +1,14 @@
+.gradle/
+.kotlin/
+.idea/
+**/build/
+local.properties
+*.iml
+.cocoindex_code/
+
+.DS_Store
+*.jks
+*.keystore
+*.p12
+.env
+.env.*

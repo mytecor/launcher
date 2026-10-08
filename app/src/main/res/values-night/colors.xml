@@ -1,0 +1,8 @@
+<resources>
+    <color name="launcher_background">#101613</color>
+    <color name="launcher_foreground">#E8F0EB</color>
+    <color name="launcher_muted">#AABBAD</color>
+    <color name="launcher_input">#26352B</color>
+    <color name="launcher_accent">#B9E5C8</color>
+    <color name="launcher_row">#1B251E</color>
+</resources>
