@@ -9,4 +9,6 @@
     <string name="app_unavailable">App is no longer available</string>
     <string name="launch_failed">Could not open app</string>
     <string name="pinned_description">%1$s, pinned</string>
+    <string name="set_wallpaper">Set wallpaper</string>
+    <string name="wallpaper_picker_unavailable">No wallpaper app available</string>
 </resources>

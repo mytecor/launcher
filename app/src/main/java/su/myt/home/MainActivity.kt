@@ -10,8 +10,10 @@ import android.graphics.drawable.RippleDrawable
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
+import android.view.GestureDetector
 import android.view.Gravity
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsAnimation
@@ -40,7 +42,6 @@ import su.myt.home.ui.AppAdapter
 
 class MainActivity : Activity() {
 
-    private val backgroundColor by lazy { getColor(R.color.launcher_background) }
     private val foregroundColor by lazy { getColor(R.color.launcher_foreground) }
     private val muted by lazy { getColor(R.color.launcher_muted) }
 
@@ -67,7 +68,6 @@ class MainActivity : Activity() {
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(backgroundColor)
             clipChildren = false
             clipToPadding = false
         }
@@ -173,13 +173,47 @@ class MainActivity : Activity() {
         itemTouchHelper.attachToRecyclerView(list)
         area.addView(list, FrameLayout.LayoutParams(-1, -1))
 
+        val gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onLongPress(e: MotionEvent) {
+                if (!isSearching && list.findChildViewUnder(e.x, e.y) == null) {
+                    openWallpaperPicker()
+                }
+            }
+        })
+        list.addOnItemTouchListener(object : RecyclerView.SimpleOnItemTouchListener() {
+            override fun onInterceptTouchEvent(rv: RecyclerView, e: MotionEvent): Boolean {
+                gestureDetector.onTouchEvent(e)
+                return false
+            }
+        })
+
+        area.setOnLongClickListener {
+            if (!isSearching) {
+                openWallpaperPicker()
+                true
+            } else false
+        }
+
         empty = TextView(this).apply {
             setTextColor(muted)
             textSize = 16f
             gravity = Gravity.CENTER
             setPadding(dp(16), dp(16), dp(16), dp(16))
+            setOnLongClickListener {
+                if (!isSearching) {
+                    openWallpaperPicker()
+                    true
+                } else false
+            }
         }
         area.addView(empty, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
+
+        root.setOnLongClickListener {
+            if (!isSearching) {
+                openWallpaperPicker()
+                true
+            } else false
+        }
 
         val inputRow = LinearLayout(this).apply {
             isBaselineAligned = false
@@ -356,6 +390,16 @@ class MainActivity : Activity() {
             is LaunchResult.Failed -> {
                 Toast.makeText(this, getString(R.string.launch_failed), Toast.LENGTH_SHORT).show()
             }
+        }
+    }
+
+    private fun openWallpaperPicker() {
+        val intent = Intent(Intent.ACTION_SET_WALLPAPER)
+        val chooser = Intent.createChooser(intent, getString(R.string.set_wallpaper))
+        try {
+            startActivity(chooser)
+        } catch (_: Exception) {
+            Toast.makeText(this, R.string.wallpaper_picker_unavailable, Toast.LENGTH_SHORT).show()
         }
     }
 
