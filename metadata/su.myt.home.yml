@@ -13,9 +13,9 @@ Repo: https://github.com/mytecor/launcher.git
 Binaries: https://github.com/mytecor/launcher/releases/download/v%v/Home-%v.apk
 
 Builds:
-  - versionName: 1.1.2
-    versionCode: 4
-    commit: 2b8e24172dcb5dbe5737bf465b647ad04c441d6e
+  - versionName: 1.1.3
+    versionCode: 5
+    commit: 99dae62288b3d76d1399ef690e7833a2e59399ff
     subdir: app
     gradle:
       - yes
@@ -24,5 +24,5 @@ AllowedAPKSigningKeys: 0ec1889519355545674e9d32c9248e9c5ab45f9f5a2946d9c378a938d
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
-CurrentVersion: 1.1.2
-CurrentVersionCode: 4
+CurrentVersion: 1.1.3
+CurrentVersionCode: 5
