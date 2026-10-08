@@ -1,0 +1,10 @@
+Version 1.1.3:
+• Disabled proprietary dependency metadata in APK signing block for F-Droid compliance
+• Enabled R8 code shrinking and resource optimization
+• Improved keyboard auto-show behavior
+• Added open-source Apache-2.0 license and F-Droid metadata
+• Fast fuzzy search for installed apps with typo tolerance
+• Pinned apps with drag-and-drop reordering
+• Multi-profile and work profile badging with independent pinning
+• Material You dynamic theming with dark mode support
+• Privacy-first: completely offline without internet permission
