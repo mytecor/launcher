@@ -4,6 +4,10 @@ A minimalist Android home screen written in Kotlin for Android 11+ (API 30+).
 
 <p align="center">
   <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/1.png" width="280" alt="Home launcher screenshot">
+  <br><br>
+  <a href="https://f-droid.org/packages/su.myt.home/">
+    <img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.svg" alt="Get it on F-Droid" height="75">
+  </a>
 </p>
 
 ## Features
@@ -32,6 +36,12 @@ Or using the helper script:
 The APK will be at `app/build/outputs/apk/debug/app-debug.apk`.
 
 ## Installation
+
+### F-Droid
+
+[<img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.svg" alt="Get it on F-Droid" height="60">](https://f-droid.org/packages/su.myt.home/)
+
+### Manual (ADB)
 
 1. Install the APK:
    ```sh
