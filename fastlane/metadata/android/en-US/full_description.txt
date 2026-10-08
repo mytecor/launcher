@@ -1,0 +1,9 @@
+Home is a fast, minimalist Android launcher designed for focus and privacy.
+
+Features:
+• Minimalist UI: Shows pinned apps when the query is empty; search bar is placed directly above your keyboard.
+• Fuzzy Search: Tolerates typos and partial queries; press Enter to instantly launch the top match.
+• Pinned Apps: Long-press any app in search to pin or unpin; drag-and-drop your favorites to reorder.
+• Work Profile Support: Seamless multi-profile support with badging and independent pinning per profile.
+• Material You: Dynamic colors adapting to your wallpaper on Android 12+, with full light and dark theme support.
+• Privacy-First: No internet access permission, no ads, no trackers, and no QUERY_ALL_PACKAGES permission.

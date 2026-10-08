@@ -1,0 +1,6 @@
+Initial release of Home launcher:
+• Fast fuzzy search for installed apps with typo tolerance
+• Pinned apps with drag-and-drop reordering
+• Multi-profile and work profile badging with independent pinning
+• Material You dynamic theming with dark mode support
+• Privacy-first: completely offline without internet permission

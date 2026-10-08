@@ -1,0 +1,25 @@
+Categories:
+  - System
+License: Apache-2.0
+AuthorName: mytecor
+AuthorEmail: mytecor@gmail.com
+SourceCode: https://github.com/mytecor/launcher
+IssueTracker: https://github.com/mytecor/launcher/issues
+
+AutoName: Home
+
+RepoType: git
+Repo: https://github.com/mytecor/launcher.git
+
+Builds:
+  - versionName: 1.1.1
+    versionCode: 3
+    commit: v1.1.1
+    subdir: app
+    gradle:
+      - yes
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+CurrentVersion: 1.1.1
+CurrentVersionCode: 3

@@ -6,8 +6,10 @@ android {
         applicationId = "su.myt.home"
         minSdk = 30
         targetSdk = 35
-        versionCode = providers.gradleProperty("releaseVersionCode").orElse("1").get().toInt()
-        versionName = providers.gradleProperty("releaseVersion").orElse("1.0.0").get()
+        versionCode = 3
+        versionName = "1.1.1"
+        providers.gradleProperty("releaseVersionCode").orNull?.toIntOrNull()?.let { versionCode = it }
+        providers.gradleProperty("releaseVersion").orNull?.let { versionName = it }
     }
     val releaseKeystore = providers.environmentVariable("ANDROID_KEYSTORE_PATH").orNull
     if (releaseKeystore != null) {
