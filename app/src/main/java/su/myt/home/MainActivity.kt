@@ -60,20 +60,44 @@ class MainActivity : Activity() {
     private lateinit var empty: TextView
     private lateinit var adapter: AppAdapter
     private lateinit var itemTouchHelper: ItemTouchHelper
+    private lateinit var area: FrameLayout
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         @Suppress("DEPRECATION")
         window.setDecorFitsSystemWindows(false)
 
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            clipChildren = false
-            clipToPadding = false
-        }
+        val root = FrameLayout(this)
 
         val imeAnimations = mutableSetOf<WindowInsetsAnimation>()
         var lastImeHeight = 0
+        var inputRowHeight = dp(56)
+        var lastBarsTop = 0
+
+        fun updateListPadding() {
+            val halfInput = inputRowHeight / 2
+            val overlapBottomPadding = (inputRowHeight - halfInput) + dp(16)
+            if (::area.isInitialized) {
+                (area.layoutParams as? FrameLayout.LayoutParams)?.let {
+                    if (it.bottomMargin != halfInput) {
+                        it.bottomMargin = halfInput
+                        area.layoutParams = it
+                    }
+                }
+            }
+            if (::list.isInitialized) {
+                list.setPadding(0, lastBarsTop + dp(16), 0, overlapBottomPadding)
+            }
+            if (::empty.isInitialized) {
+                (empty.layoutParams as? FrameLayout.LayoutParams)?.let {
+                    if (it.bottomMargin != overlapBottomPadding) {
+                        it.bottomMargin = overlapBottomPadding
+                        empty.layoutParams = it
+                    }
+                }
+            }
+        }
+
         fun applyInsets(insets: WindowInsets) {
             val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
             val ime = insets.getInsets(WindowInsets.Type.ime())
@@ -84,7 +108,9 @@ class MainActivity : Activity() {
                 isImeVisible -> lastImeHeight
                 else -> 0
             }
-            root.setPadding(bars.left + dp(16), bars.top + dp(16), bars.right + dp(16), maxOf(bars.bottom, effectiveImeBottom) + dp(16))
+            lastBarsTop = bars.top
+            root.setPadding(bars.left + dp(16), 0, bars.right + dp(16), maxOf(bars.bottom, effectiveImeBottom) + dp(16))
+            updateListPadding()
         }
 
         root.setOnApplyWindowInsetsListener { _, insets ->
@@ -110,11 +136,10 @@ class MainActivity : Activity() {
             }
         })
 
-        val area = FrameLayout(this).apply {
-            clipChildren = false
-            clipToPadding = false
-        }
-        root.addView(area, LinearLayout.LayoutParams(-1, 0, 1f))
+        area = FrameLayout(this)
+        root.addView(area, FrameLayout.LayoutParams(-1, -1).apply {
+            bottomMargin = inputRowHeight / 2
+        })
 
         adapter = AppAdapter(
             context = this,
@@ -145,8 +170,8 @@ class MainActivity : Activity() {
             this.layoutManager = layoutManager
             this.adapter = this@MainActivity.adapter
             isVerticalScrollBarEnabled = false
-            clipChildren = false
             clipToPadding = false
+            setPadding(0, dp(16), 0, dp(16))
             itemAnimator = DefaultItemAnimator()
             addItemDecoration(object : RecyclerView.ItemDecoration() {
                 override fun getItemOffsets(outRect: Rect, view: View, parent: RecyclerView, state: RecyclerView.State) {
@@ -157,6 +182,7 @@ class MainActivity : Activity() {
                 }
             })
         }
+        root.rootWindowInsets?.let(::applyInsets)
 
         val touchCallback = PinnedItemTouchHelperCallback(
             isDragEnabled = { !isSearching },
@@ -206,7 +232,7 @@ class MainActivity : Activity() {
                 } else false
             }
         }
-        area.addView(empty, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
+        area.addView(empty, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply { bottomMargin = (inputRowHeight - inputRowHeight / 2) + dp(16) })
 
         root.setOnLongClickListener {
             if (!isSearching) {
@@ -218,9 +244,17 @@ class MainActivity : Activity() {
         val inputRow = LinearLayout(this).apply {
             isBaselineAligned = false
             gravity = Gravity.CENTER_VERTICAL
+            translationZ = dp(2).toFloat()
             background = GradientDrawable().apply {
                 setColor(getColor(R.color.launcher_input))
                 cornerRadius = dp(20).toFloat()
+            }
+            addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
+                val h = bottom - top
+                if (h > 0 && h != inputRowHeight) {
+                    inputRowHeight = h
+                    updateListPadding()
+                }
             }
         }
 
@@ -274,7 +308,7 @@ class MainActivity : Activity() {
         inputRow.addView(clearButton, LinearLayout.LayoutParams(dp(48), dp(48)).apply {
             setMargins(dp(4), dp(4), dp(4), dp(4))
         })
-        root.addView(inputRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
+        root.addView(inputRow, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
 
         setContentView(root)
         search.setText(savedInstanceState?.getString("query") ?: "")
