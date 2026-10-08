@@ -2,6 +2,10 @@
 
 A minimalist Android home screen written in Kotlin for Android 11+ (API 30+).
 
+<p align="center">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/1.png" width="280" alt="Home launcher screenshot">
+</p>
+
 ## Features
 
 - **Minimalist UI**: Shows pinned apps on an empty query; search bar sits directly above the keyboard.
