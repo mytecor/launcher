@@ -6,8 +6,8 @@ android {
         applicationId = "su.myt.home"
         minSdk = 30
         targetSdk = 35
-        versionCode = 7
-        versionName = "1.1.5"
+        versionCode = 8
+        versionName = "1.1.6"
         providers.gradleProperty("releaseVersionCode").orNull?.toIntOrNull()?.let { versionCode = it }
         providers.gradleProperty("releaseVersion").orNull?.let { versionName = it }
     }

@@ -1,0 +1,5 @@
+Version 1.1.6:
+• Instant startup with persistent app metadata and icon caching
+• Smooth asynchronous icon loading with memory LRU cache
+• Support for themed monochrome icon on Android 13+
+• Atomic disk caching and cache invalidation on app updates
