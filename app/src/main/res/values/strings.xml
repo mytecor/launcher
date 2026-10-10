@@ -3,7 +3,6 @@
     <string name="search_hint">Search apps…</string>
     <string name="clear_search">Clear search</string>
     <string name="loading_apps">Loading apps…</string>
-    <string name="no_results">No apps found</string>
     <string name="app_pinned">Pinned: %1$s</string>
     <string name="app_unpinned">Unpinned: %1$s</string>
     <string name="app_unavailable">App is no longer available</string>

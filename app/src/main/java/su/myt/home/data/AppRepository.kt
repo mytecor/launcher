@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.LauncherApps
+import android.graphics.drawable.Drawable
 import android.os.Process
 import android.os.UserHandle
 import android.os.UserManager
@@ -15,13 +16,26 @@ import java.util.concurrent.Executors
 
 class AppRepository(
     private val context: Context,
-    private val worker: ExecutorService = Executors.newSingleThreadExecutor()
+    private val worker: ExecutorService = Executors.newSingleThreadExecutor(),
+    private val appCache: AppCache = AppCache(context)
 ) {
     private val launcherAppsCallback = object : LauncherApps.Callback() {
-        override fun onPackageRemoved(packageName: String?, user: UserHandle?) = notifyChanged()
-        override fun onPackageAdded(packageName: String?, user: UserHandle?) = notifyChanged()
-        override fun onPackageChanged(packageName: String?, user: UserHandle?) = notifyChanged()
-        override fun onPackagesAvailable(packageNames: Array<out String>?, user: UserHandle?, replacing: Boolean) = notifyChanged()
+        override fun onPackageRemoved(packageName: String?, user: UserHandle?) {
+            packageName?.let { appCache.invalidatePackage(it) }
+            notifyChanged()
+        }
+        override fun onPackageAdded(packageName: String?, user: UserHandle?) {
+            packageName?.let { appCache.invalidatePackage(it) }
+            notifyChanged()
+        }
+        override fun onPackageChanged(packageName: String?, user: UserHandle?) {
+            packageName?.let { appCache.invalidatePackage(it) }
+            notifyChanged()
+        }
+        override fun onPackagesAvailable(packageNames: Array<out String>?, user: UserHandle?, replacing: Boolean) {
+            packageNames?.forEach { appCache.invalidatePackage(it) }
+            notifyChanged()
+        }
         override fun onPackagesUnavailable(packageNames: Array<out String>?, user: UserHandle?, replacing: Boolean) = notifyChanged()
         override fun onPackagesSuspended(packageNames: Array<out String>?, user: UserHandle?) = notifyChanged()
         override fun onPackagesUnsuspended(packageNames: Array<out String>?, user: UserHandle?) = notifyChanged()
@@ -63,15 +77,21 @@ class AppRepository(
     fun shutdown() {
         stopObserving()
         worker.shutdown()
+        appCache.shutdown()
     }
 
     private fun notifyChanged() {
         onAppsChangedListener?.invoke()
     }
 
+    fun loadCachedApps(): List<App> = appCache.loadApps()
+
+    fun loadIcon(app: App, onLoaded: (Drawable) -> Unit): Drawable? = appCache.loadIcon(app, onLoaded)
+
     fun loadApps(onResult: (List<App>) -> Unit) {
         worker.execute {
             val apps = fetchApps()
+            appCache.saveApps(apps)
             onResult(apps)
         }
     }

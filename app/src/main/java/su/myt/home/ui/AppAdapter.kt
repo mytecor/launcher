@@ -3,6 +3,7 @@ package su.myt.home.ui
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.view.Gravity
@@ -19,11 +20,16 @@ class AppAdapter(
     private val context: Context,
     private val isItemPinned: (App) -> Boolean,
     private val shouldShowStar: () -> Boolean,
+    private val loadIcon: ((App, (Drawable) -> Unit) -> Drawable?)? = null,
     private val onItemClick: (App) -> Unit,
     private val onItemLongClick: (App) -> Boolean
 ) : RecyclerView.Adapter<AppAdapter.ViewHolder>() {
 
     var items: MutableList<App> = mutableListOf()
+
+    private val defaultIcon: Drawable by lazy {
+        context.packageManager.defaultActivityIcon
+    }
 
     inner class ViewHolder(
         val row: LinearLayout,
@@ -31,6 +37,8 @@ class AppAdapter(
         val labelView: TextView,
         val starView: ImageView
     ) : RecyclerView.ViewHolder(row) {
+        var boundAppId: String? = null
+
         init {
             row.setOnClickListener {
                 val pos = bindingAdapterPosition
@@ -98,13 +106,15 @@ class AppAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val app = items[position]
-        holder.iconView.setImageDrawable(
-            app.icon ?: try {
-                context.packageManager.getActivityIcon(app.component)
-            } catch (_: Exception) {
-                context.packageManager.defaultActivityIcon
+        holder.boundAppId = app.id
+
+        val icon = app.icon ?: loadIcon?.invoke(app) { loadedDrawable ->
+            if (holder.boundAppId == app.id) {
+                holder.iconView.setImageDrawable(loadedDrawable)
             }
-        )
+        }
+        holder.iconView.setImageDrawable(icon ?: defaultIcon)
+
         holder.labelView.text = app.label
         val pinned = isItemPinned(app)
         holder.starView.visibility = if (shouldShowStar() && pinned) View.VISIBLE else View.GONE

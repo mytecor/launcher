@@ -24,7 +24,6 @@ import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.TextView
 import android.widget.Toast
 import androidx.recyclerview.widget.DefaultItemAnimator
 import androidx.recyclerview.widget.ItemTouchHelper
@@ -57,7 +56,6 @@ class MainActivity : Activity() {
     private lateinit var clearButton: ImageButton
     private lateinit var search: EditText
     private lateinit var list: RecyclerView
-    private lateinit var empty: TextView
     private lateinit var adapter: AppAdapter
     private lateinit var itemTouchHelper: ItemTouchHelper
     private lateinit var area: FrameLayout
@@ -87,14 +85,6 @@ class MainActivity : Activity() {
             }
             if (::list.isInitialized) {
                 list.setPadding(0, lastBarsTop + dp(16), 0, overlapBottomPadding)
-            }
-            if (::empty.isInitialized) {
-                (empty.layoutParams as? FrameLayout.LayoutParams)?.let {
-                    if (it.bottomMargin != overlapBottomPadding) {
-                        it.bottomMargin = overlapBottomPadding
-                        empty.layoutParams = it
-                    }
-                }
             }
         }
 
@@ -145,6 +135,7 @@ class MainActivity : Activity() {
             context = this,
             isItemPinned = { app -> pinnedManager.isPinned(app) },
             shouldShowStar = { isSearching },
+            loadIcon = { app, onLoaded -> appRepository.loadIcon(app, onLoaded) },
             onItemClick = { app -> launch(app) },
             onItemLongClick = { app ->
                 if (isSearching) {
@@ -220,20 +211,6 @@ class MainActivity : Activity() {
             } else false
         }
 
-        empty = TextView(this).apply {
-            setTextColor(muted)
-            textSize = 16f
-            gravity = Gravity.CENTER
-            setPadding(dp(16), dp(16), dp(16), dp(16))
-            setOnLongClickListener {
-                if (!isSearching) {
-                    openWallpaperPicker()
-                    true
-                } else false
-            }
-        }
-        area.addView(empty, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply { bottomMargin = (inputRowHeight - inputRowHeight / 2) + dp(16) })
-
         root.setOnLongClickListener {
             if (!isSearching) {
                 openWallpaperPicker()
@@ -259,7 +236,7 @@ class MainActivity : Activity() {
         }
 
         search = EditText(this).apply {
-            setHint(R.string.search_hint)
+            setHint(if (loading) R.string.loading_apps else R.string.search_hint)
             setTextColor(foregroundColor)
             setHintTextColor(muted)
             textSize = 18f
@@ -311,6 +288,14 @@ class MainActivity : Activity() {
         root.addView(inputRow, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
 
         setContentView(root)
+
+        val cached = appRepository.loadCachedApps()
+        if (cached.isNotEmpty()) {
+            allApps = cached
+            loading = false
+            pinnedManager.syncWithLoadedApps(cached)
+        }
+
         search.setText(savedInstanceState?.getString("query") ?: "")
         render()
 
@@ -374,11 +359,22 @@ class MainActivity : Activity() {
         appRepository.loadApps { loaded ->
             runOnUiThread {
                 if (!isDestroyed) {
-                    if (allApps != loaded || loading) {
-                        pinnedManager.syncWithLoadedApps(loaded)
-                        allApps = loaded
-                        loading = false
+                    val appsChanged = allApps != loaded
+                    pinnedManager.syncWithLoadedApps(loaded)
+                    allApps = loaded
+                    val wasLoading = loading
+                    loading = false
+
+                    if (appsChanged || wasLoading) {
                         render()
+                    } else {
+                        val query = search.text.toString().trim().take(100)
+                        adapter.items = if (query.isEmpty()) {
+                            pinnedManager.getPinnedApps(allApps)
+                        } else {
+                            searchEngine.search(allApps, query).toMutableList()
+                        }
+                        adapter.notifyDataSetChanged()
                     }
                 }
             }
@@ -404,12 +400,8 @@ class MainActivity : Activity() {
         adapter.items = items
         adapter.notifyDataSetChanged()
 
-        empty.text = when {
-            loading -> getString(R.string.loading_apps)
-            query.isNotEmpty() -> getString(R.string.no_results)
-            else -> ""
-        }
-        empty.visibility = if (items.isEmpty() && empty.text.isNotEmpty()) View.VISIBLE else View.GONE
+        search.setHint(if (loading) R.string.loading_apps else R.string.search_hint)
+
         if (items.isNotEmpty()) list.scrollToPosition(items.lastIndex)
     }
 
