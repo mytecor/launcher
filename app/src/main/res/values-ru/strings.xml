@@ -1,0 +1,16 @@
+<resources>
+    <string name="app_name">Home</string>
+    <string name="search_hint">Поиск приложений…</string>
+    <string name="clear_search">Очистить поиск</string>
+    <string name="loading_apps">Загрузка приложений…</string>
+    <string name="app_pinned">Закреплено: %1$s</string>
+    <string name="app_unpinned">Откреплено: %1$s</string>
+    <string name="app_unavailable">Приложение недоступно</string>
+    <string name="launch_failed">Не удалось открыть приложение</string>
+    <string name="pinned_description">%1$s, закреплено</string>
+    <string name="set_wallpaper">Установить обои</string>
+    <string name="wallpaper_picker_unavailable">Нет приложения для обоев</string>
+    <string name="ungroup_app">Вынести из группы</string>
+    <string name="unpin_app">Открепить</string>
+    <string name="move_group">Переместить группу</string>
+</resources>
