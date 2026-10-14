@@ -2,10 +2,8 @@
 set -eu
 cd "$(dirname "$0")/.."
 
-if [ "$(uname)" = Darwin ]; then
-    JAVA_HOME=$(/usr/libexec/java_home -v 17)
-    export JAVA_HOME
-fi
+# shellcheck disable=SC1091
+. "$(dirname "$0")/jdk.sh"
 
 KEYSTORE_DIR="$HOME/.android/keystores/home-release"
 if [ -f "$KEYSTORE_DIR/home-release.p12" ] && [ -f "$KEYSTORE_DIR/password.txt" ]; then

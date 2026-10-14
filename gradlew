@@ -117,6 +117,11 @@ esac
 
 CLASSPATH=$APP_HOME/gradle/wrapper/gradle-wrapper.jar
 
+# Home: prefer a local JDK 17 before macOS java_home (see scripts/jdk.sh).
+if [ -f "$APP_HOME/scripts/jdk.sh" ]; then
+    # shellcheck disable=SC1091
+    . "$APP_HOME/scripts/jdk.sh"
+fi
 
 # Determine the Java command to use to start the JVM.
 if [ -n "$JAVA_HOME" ] ; then

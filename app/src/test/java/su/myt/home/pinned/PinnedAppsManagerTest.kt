@@ -78,18 +78,18 @@ class PinnedAppsManagerTest {
         val storage = FakeStorage(listOf(listOf(app1.id, app2.id, app3.id)))
         val manager = PinnedAppsManager(storage)
 
-        // Remove app1 from index 0
-        manager.removeAppFromGroup(0, 0)
-        assertEquals(listOf(listOf(app2.id, app3.id)), storage.saved)
+        val items = mutableListOf(AppGroup(mutableListOf(app1, app2, app3)))
 
-        // Insert app1 at the end (slot 2)
-        manager.addAppToGroup(0, 2, app1)
+        assertTrue(manager.moveAppInGroup(items, 0, 0, 2))
+        assertEquals(listOf(app2, app3, app1), items[0].apps)
         assertEquals(listOf(listOf(app2.id, app3.id, app1.id)), storage.saved)
 
-        // Move app3 to the beginning (slot 0)
-        manager.removeAppFromGroup(0, 1)
-        manager.addAppToGroup(0, 0, app3)
+        assertTrue(manager.moveAppInGroup(items, 0, 1, 0))
+        assertEquals(listOf(app3, app2, app1), items[0].apps)
         assertEquals(listOf(listOf(app3.id, app2.id, app1.id)), storage.saved)
+
+        assertFalse(manager.moveAppInGroup(items, 0, 1, 1))
+        assertEquals(listOf(app3, app2, app1), items[0].apps)
     }
 
     @Test
@@ -266,5 +266,43 @@ class PinnedAppsManagerTest {
         assertEquals(listOf(app1), items[0].apps)
         assertEquals(listOf(app3, app2), items[1].apps)
         assertEquals(listOf(listOf(app1.id), listOf(app3.id, app2.id)), storage.saved)
+    }
+
+    @Test
+    fun testExtractAppToGroupAtSlot() {
+        val app1 = createApp("com.app1", "Main1", "App 1")
+        val app2 = createApp("com.app2", "Main2", "App 2")
+        val app3 = createApp("com.app3", "Main3", "App 3")
+        val storage = FakeStorage(listOf(listOf(app1.id, app2.id), listOf(app3.id)))
+        val manager = PinnedAppsManager(storage)
+
+        val items = mutableListOf(
+            AppGroup(mutableListOf(app1, app2)),
+            AppGroup(mutableListOf(app3))
+        )
+
+        assertTrue(manager.extractAppToGroup(items, 0, 1, 1, 0))
+        assertEquals(listOf(app1), items[0].apps)
+        assertEquals(listOf(app2, app3), items[1].apps)
+        assertEquals(listOf(listOf(app1.id), listOf(app2.id, app3.id)), storage.saved)
+    }
+
+    @Test
+    fun testGroupItemsAtSlot() {
+        val app1 = createApp("com.app1", "Main1", "App 1")
+        val app2 = createApp("com.app2", "Main2", "App 2")
+        val app3 = createApp("com.app3", "Main3", "App 3")
+        val storage = FakeStorage(listOf(listOf(app1.id, app2.id), listOf(app3.id)))
+        val manager = PinnedAppsManager(storage)
+
+        val items = mutableListOf(
+            AppGroup(mutableListOf(app1, app2)),
+            AppGroup(mutableListOf(app3))
+        )
+
+        assertTrue(manager.groupItems(items, 1, 0, 1))
+        assertEquals(1, items.size)
+        assertEquals(listOf(app1, app3, app2), items[0].apps)
+        assertEquals(listOf(listOf(app1.id, app3.id, app2.id)), storage.saved)
     }
 }

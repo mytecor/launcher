@@ -10,7 +10,5 @@
     <string name="pinned_description">%1$s, pinned</string>
     <string name="set_wallpaper">Set wallpaper</string>
     <string name="wallpaper_picker_unavailable">No wallpaper app available</string>
-    <string name="ungroup_app">Move out of group</string>
-    <string name="unpin_app">Unpin</string>
     <string name="move_group">Move group</string>
 </resources>

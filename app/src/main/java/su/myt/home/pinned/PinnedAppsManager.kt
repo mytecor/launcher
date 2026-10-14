@@ -122,20 +122,38 @@ class PinnedAppsManager(private val storage: PinnedStorage) {
         return (fromSize + toSize) <= MAX_GROUP_SIZE
     }
 
-    fun groupItems(items: MutableList<AppGroup>, from: Int, to: Int): Boolean {
+    fun groupItems(items: MutableList<AppGroup>, from: Int, to: Int, slotIndex: Int = -1): Boolean {
         if (!canGroup(items, from, to)) return false
 
         val fromItem = items[from]
         val toItem = items[to]
-        toItem.apps.addAll(fromItem.apps)
+        val insertIdx = insertIndex(toItem.apps.size, slotIndex)
+        toItem.apps.addAll(insertIdx, fromItem.apps)
         items.removeAt(from)
 
         if (from in pinnedOrder.indices && to in pinnedOrder.indices) {
             val fromIds = pinnedOrder[from]
-            pinnedOrder[to].addAll(fromIds)
+            pinnedOrder[to].addAll(insertIdx, fromIds)
             pinnedOrder.removeAt(from)
         }
         saveOrder()
+        return true
+    }
+
+    fun moveAppInGroup(
+        items: MutableList<AppGroup>,
+        groupIndex: Int,
+        appIndex: Int,
+        slotIndex: Int
+    ): Boolean {
+        if (groupIndex !in items.indices) return false
+        val group = items[groupIndex]
+        if (appIndex !in group.apps.indices || group.apps.size <= 1) return false
+        val before = group.apps.toList()
+        val app = group.apps.removeAt(appIndex)
+        group.apps.add(insertIndex(group.apps.size, slotIndex), app)
+        if (group.apps == before) return false
+        syncOrderFromGroups(items)
         return true
     }
 
@@ -165,7 +183,8 @@ class PinnedAppsManager(private val storage: PinnedStorage) {
         items: MutableList<AppGroup>,
         groupIndex: Int,
         appIndex: Int,
-        targetGroupIndex: Int
+        targetGroupIndex: Int,
+        slotIndex: Int = -1
     ): Boolean {
         if (groupIndex !in items.indices || targetGroupIndex !in items.indices || groupIndex == targetGroupIndex) return false
         val group = items[groupIndex]
@@ -174,7 +193,7 @@ class PinnedAppsManager(private val storage: PinnedStorage) {
         if (targetGroup.apps.size >= MAX_GROUP_SIZE) return false
 
         val extracted = group.apps.removeAt(appIndex)
-        targetGroup.apps.add(extracted)
+        targetGroup.apps.add(insertIndex(targetGroup.apps.size, slotIndex), extracted)
         if (group.apps.isEmpty()) {
             items.removeAt(groupIndex)
         }
@@ -218,6 +237,11 @@ class PinnedAppsManager(private val storage: PinnedStorage) {
 
     fun saveOrder() {
         storage.savePinnedOrder(pinnedOrder)
+    }
+
+    private fun insertIndex(size: Int, slotIndex: Int): Int {
+        if (slotIndex < 0) return size
+        return slotIndex.coerceIn(0, size)
     }
 
     fun togglePin(app: App): Boolean {

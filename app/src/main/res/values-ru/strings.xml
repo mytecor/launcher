@@ -10,7 +10,5 @@
     <string name="pinned_description">%1$s, закреплено</string>
     <string name="set_wallpaper">Установить обои</string>
     <string name="wallpaper_picker_unavailable">Нет приложения для обоев</string>
-    <string name="ungroup_app">Вынести из группы</string>
-    <string name="unpin_app">Открепить</string>
     <string name="move_group">Переместить группу</string>
 </resources>

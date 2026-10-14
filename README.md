@@ -35,6 +35,12 @@ Or using the helper script:
 
 The APK will be at `app/build/outputs/apk/debug/app-debug.apk`.
 
+Unit tests and lint run from a Git pre-commit hook. Install it once after clone:
+
+```sh
+./scripts/install-hooks.sh
+```
+
 ## Installation
 
 ### F-Droid

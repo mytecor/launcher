@@ -3,6 +3,7 @@
 .idea/
 **/build/
 local.properties
+.jdk-home
 *.iml
 .cocoindex_code/
 
