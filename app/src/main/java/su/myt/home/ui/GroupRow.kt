@@ -35,6 +35,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.zIndex
 import su.myt.home.model.App
 import su.myt.home.model.AppGroup
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 @Composable
@@ -132,7 +134,8 @@ internal fun GroupRow(
                     anim = anim,
                     targetX = x,
                     targetWidth = targetWidth,
-                    zIndex = if (visual is GroupVisual.Gap) 0f else 1f
+                    zIndex = if (visual is GroupVisual.Gap) 0f else 1f,
+                    isItem = visual is GroupVisual.Item
                 ) { widthPx ->
                     when (visual) {
                         is GroupVisual.Gap -> PlaceholderSlot(
@@ -164,10 +167,24 @@ internal fun AnimatedSlot(
     targetX: Float,
     targetWidth: Float,
     zIndex: Float,
+    isItem: Boolean,
     content: @Composable (widthPx: Float) -> Unit
 ) {
-    LaunchedEffect(targetX) { anim.x.animateTo(targetX, SlotSpring) }
-    LaunchedEffect(targetWidth) { anim.width.animateTo(targetWidth, SlotSpring) }
+    LaunchedEffect(targetX, targetWidth) {
+        if (isItem && anim.width.value <= 0f) {
+            anim.x.snapTo(targetX)
+            anim.width.snapTo(targetWidth)
+        } else {
+            coroutineScope {
+                if (anim.x.value != targetX) {
+                    launch { anim.x.animateTo(targetX, SlotSpring) }
+                }
+                if (anim.width.value != targetWidth) {
+                    launch { anim.width.animateTo(targetWidth, SlotSpring) }
+                }
+            }
+        }
+    }
     Box(
         Modifier
             .zIndex(zIndex)
