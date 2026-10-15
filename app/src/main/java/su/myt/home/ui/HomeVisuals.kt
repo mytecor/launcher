@@ -35,6 +35,14 @@ internal fun groupVisuals(
     draggingAppIndex: Int,
     insertSlot: Int
 ): List<GroupVisual> {
+    if (apps.size == 1 && draggingAppIndex == 0) {
+        val gapAt = if (insertSlot >= 0) insertSlot.coerceIn(0, 1) else -1
+        return buildList {
+            if (gapAt == 0) add(GroupVisual.Gap)
+            add(GroupVisual.Item(0, apps[0]))
+            if (gapAt == 1) add(GroupVisual.Gap)
+        }
+    }
     val others = if (draggingAppIndex in apps.indices) {
         apps.indices.filter { it != draggingAppIndex }
     } else {
@@ -61,16 +69,27 @@ internal fun pinnedVisuals(
     extracting: Boolean,
     insertRow: Int
 ): List<PinnedVisual> {
-    val skip = if (draggingFrom >= 0 && !extracting) draggingFrom else -1
-    val rows = (0 until count).filter { it != skip }
-    val gapAt = if (insertRow >= 0) insertRow.coerceIn(0, rows.size) else -1
-    return buildList {
-        rows.forEachIndexed { i, idx ->
-            if (i == gapAt) add(PinnedVisual.Gap)
-            add(PinnedVisual.Group(idx))
+    if (count <= 0) return emptyList()
+    if (extracting) {
+        val rows = (0 until count).toList()
+        val gapAt = if (insertRow >= 0) insertRow.coerceIn(0, rows.size) else -1
+        return buildList {
+            rows.forEachIndexed { i, idx ->
+                if (i == gapAt) add(PinnedVisual.Gap)
+                add(PinnedVisual.Group(idx))
+            }
+            if (gapAt == rows.size) add(PinnedVisual.Gap)
         }
-        if (gapAt == rows.size) add(PinnedVisual.Gap)
     }
+    val rows = (0 until count).toMutableList()
+    if (draggingFrom in rows.indices && insertRow >= 0) {
+        val dest = moveDestination(draggingFrom, insertRow, count)
+        if (dest != draggingFrom) {
+            rows.removeAt(draggingFrom)
+            rows.add(dest, draggingFrom)
+        }
+    }
+    return rows.map { PinnedVisual.Group(it) }
 }
 
 internal data class DragVisual(

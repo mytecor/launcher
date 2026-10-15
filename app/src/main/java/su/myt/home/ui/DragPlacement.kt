@@ -73,7 +73,11 @@ internal fun insertRowSlot(
 internal fun moveDestination(from: Int, insertSlot: Int, count: Int): Int {
     if (count <= 0) return 0
     if (insertSlot < 0) return from.coerceIn(0, count - 1)
-    return insertSlot.coerceIn(0, count - 1)
+    val max = count - 1
+    return when {
+        insertSlot > from -> (insertSlot - 1).coerceIn(0, max)
+        else -> insertSlot.coerceIn(0, max)
+    }
 }
 
 internal fun extractDestination(insertSlot: Int, from: Int, count: Int): Int {
@@ -81,7 +85,7 @@ internal fun extractDestination(insertSlot: Int, from: Int, count: Int): Int {
     return insertSlot.coerceIn(0, count)
 }
 
-internal const val GroupDwellMs = 500L
+internal const val GroupDwellMs = 700L
 
 internal fun gapTop(
     slot: Int,
@@ -126,8 +130,7 @@ internal fun packedRowBounds(
     extracting: Boolean,
     stride: Float
 ): Map<Int, RowBounds> {
-    if (frozen.isEmpty() || extracting || from !in frozen) return frozen
-    return frozen.filterKeys { it != from }
+    return frozen
 }
 
 internal data class DragHit(val group: Int?, val insert: Int)

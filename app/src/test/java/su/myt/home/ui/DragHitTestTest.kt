@@ -51,8 +51,10 @@ class DragHitTestTest {
         assertEquals(0, moveDestination(2, 0, 4))
         assertEquals(1, moveDestination(2, 1, 4))
         assertEquals(2, moveDestination(2, 2, 4))
-        assertEquals(3, moveDestination(2, 3, 4))
-        assertEquals(3, moveDestination(0, 3, 4))
+        assertEquals(2, moveDestination(2, 3, 4))
+        assertEquals(3, moveDestination(2, 4, 4))
+        assertEquals(2, moveDestination(0, 3, 4))
+        assertEquals(3, moveDestination(0, 4, 4))
         assertEquals(0, moveDestination(0, 0, 4))
         assertEquals(2, moveDestination(2, -1, 4))
     }
@@ -275,5 +277,78 @@ class DragHitTestTest {
             1 to row(172f)
         )
         assertEquals(listOf(100f, 172f, 244f), orderedTops(bounds))
+    }
+
+    @Test
+    fun draggingStandaloneAppLeavesOriginFilled() {
+        val app = org.mockito.Mockito.mock(su.myt.home.model.App::class.java)
+        org.mockito.Mockito.`when`(app.id).thenReturn("a.pkg/Act")
+        val visuals = groupVisuals(
+            apps = listOf(app),
+            draggingAppIndex = 0,
+            insertSlot = -1
+        )
+        assertEquals(1, visuals.size)
+        assertEquals(GroupVisual.Item(0, app), visuals[0])
+    }
+
+    @Test
+    fun pinnedVisualsRetainsOriginWhenDraggingStandaloneApp() {
+        val visuals = pinnedVisuals(
+            count = 4,
+            draggingFrom = 1,
+            extracting = false,
+            insertRow = 2
+        )
+        assertEquals(4, visuals.size)
+        assertEquals(
+            listOf(
+                PinnedVisual.Group(0),
+                PinnedVisual.Group(1),
+                PinnedVisual.Group(2),
+                PinnedVisual.Group(3)
+            ),
+            visuals
+        )
+    }
+
+    @Test
+    fun pinnedVisualsInsertsGapOnlyWhenExtractingFromGroup() {
+        val visuals = pinnedVisuals(
+            count = 3,
+            draggingFrom = 0,
+            extracting = true,
+            insertRow = 1
+        )
+        assertEquals(4, visuals.size)
+        assertEquals(
+            listOf(
+                PinnedVisual.Group(0),
+                PinnedVisual.Gap,
+                PinnedVisual.Group(1),
+                PinnedVisual.Group(2)
+            ),
+            visuals
+        )
+    }
+
+    @Test
+    fun pinnedVisualsMovesOriginSlotWhenMovingStandaloneAppToOtherRow() {
+        val visuals = pinnedVisuals(
+            count = 4,
+            draggingFrom = 1,
+            extracting = false,
+            insertRow = 3
+        )
+        assertEquals(4, visuals.size)
+        assertEquals(
+            listOf(
+                PinnedVisual.Group(0),
+                PinnedVisual.Group(2),
+                PinnedVisual.Group(1),
+                PinnedVisual.Group(3)
+            ),
+            visuals
+        )
     }
 }

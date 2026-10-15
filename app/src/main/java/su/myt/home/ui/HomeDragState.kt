@@ -138,10 +138,6 @@ internal class HomeDragState(
         val current = drag ?: return
         val next = current.copy(x = current.x + delta.x, y = current.y + delta.y)
         drag = next
-        if (abs(next.y - dwellAnchorY) > rowHeightPx * 0.18f) {
-            dwellAnchorY = next.y
-            dwellEpoch++
-        }
         val items = getItems()
         val extracting = items.getOrNull(current.from)?.isGroup == true
         val frozen = hitRows()
@@ -155,7 +151,11 @@ internal class HomeDragState(
             canTarget = { canGroupAt(current.from, extracting, it) }
         )
         val candidate = hit.group
-        hoverCandidate = candidate ?: -1
+        if (candidate != hoverCandidate) {
+            hoverCandidate = candidate ?: -1
+            dwellAnchorY = next.y
+            dwellEpoch++
+        }
         val committedGroup = candidate != null && candidate == hoverGroup
         if (committedGroup) {
             hoverGroup = candidate
@@ -219,7 +219,12 @@ internal class HomeDragState(
             val x = rowLeft + slot * (width + groupSpacingPx)
             return Triple(x, y, width)
         }
-        val y = gapTop(insertRow, tops, extracting, stride) ?: gapBounds?.top ?: overlay.y
+        val dest = moveDestination(overlay.from, insertRow, items.size)
+        val y = if (!extracting) {
+            tops.getOrNull(dest) ?: rowBounds[overlay.from]?.top ?: overlay.y
+        } else {
+            gapBounds?.top ?: gapTop(insertRow, tops, extracting = true, stride) ?: overlay.y
+        }
         return Triple(rowLeft, y, rowWidth)
     }
 

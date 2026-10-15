@@ -193,8 +193,17 @@ fun HomeScreen(
                         key = { _, visual ->
                             when (visual) {
                                 PinnedVisual.Gap -> "insert-gap"
-                                is PinnedVisual.Group ->
-                                    items[visual.index].apps.map { it.id }.sorted().joinToString(";")
+                                is PinnedVisual.Group -> {
+                                    val isOriginEmpty = !dragState.revealDrop &&
+                                        dragState.drag?.from == visual.index &&
+                                        items.getOrNull(visual.index)?.apps?.size == 1
+                                    if (isOriginEmpty) {
+                                        "drag-origin-placeholder"
+                                    } else {
+                                        items.getOrNull(visual.index)?.apps?.map { it.id }?.sorted()?.joinToString(";")
+                                            ?: "empty-${visual.index}"
+                                    }
+                                }
                             }
                         }
                     ) { _, visual ->
@@ -228,7 +237,7 @@ fun HomeScreen(
                                 val placement = Modifier.animateItem(
                                     fadeInSpec = snap(),
                                     fadeOutSpec = snap(),
-                                    placementSpec = if (dragState.revealDrop) snap() else ItemPlacementSpring
+                                    placementSpec = ItemPlacementSpring
                                 )
                                 val trackBounds = Modifier.onGloballyPositioned {
                                     val pos = it.positionInRoot()

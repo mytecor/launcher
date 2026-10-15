@@ -142,18 +142,29 @@ internal fun GroupRow(
                             Modifier.width(with(density) { widthPx.toDp() }),
                             rowColor
                         )
-                        is GroupVisual.Item -> GroupAppSlot(
-                            app = visual.app,
-                            modifier = Modifier.width(with(density) { widthPx.toDp() }),
-                            compact = compact,
-                            showStar = showStar && !compact,
-                            foreground = foreground,
-                            accent = accent,
-                            rowColor = rowColor,
-                            loadIcon = loadIcon,
-                            onClick = { onLaunch(visual.app) },
-                            onLongClick = if (compact) null else onLongClick
-                        )
+                        is GroupVisual.Item -> {
+                            val isDragging = visual.appIndex == draggingAppIndex
+                            if (isDragging) {
+                                Box(
+                                    Modifier
+                                        .width(with(density) { widthPx.toDp() })
+                                        .height(RowHeight)
+                                )
+                            } else {
+                                GroupAppSlot(
+                                    app = visual.app,
+                                    modifier = Modifier.width(with(density) { widthPx.toDp() }),
+                                    compact = compact,
+                                    showStar = showStar && !compact,
+                                    foreground = foreground,
+                                    accent = accent,
+                                    rowColor = rowColor,
+                                    loadIcon = loadIcon,
+                                    onClick = { onLaunch(visual.app) },
+                                    onLongClick = if (compact) null else onLongClick
+                                )
+                            }
+                        }
                     }
                 }
             }
