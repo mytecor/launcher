@@ -1,6 +1,7 @@
 package su.myt.home.ui
 
 import android.graphics.drawable.Drawable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -21,6 +22,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import su.myt.home.R
 import su.myt.home.model.App
+
+private val StarSlotSize = 36.dp
+private val StarSize = 20.dp
 
 @Composable
 internal fun AppRowContent(
@@ -54,7 +58,17 @@ internal fun AppRowContent(
             overflow = TextOverflow.Ellipsis
         )
         if (showStar) {
-            Icon(Icons.Filled.Star, contentDescription = null, tint = accent, modifier = Modifier.size(36.dp))
+            Box(
+                modifier = Modifier.size(StarSlotSize),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Star,
+                    contentDescription = null,
+                    tint = accent,
+                    modifier = Modifier.size(StarSize)
+                )
+            }
         }
     }
 }
