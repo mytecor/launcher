@@ -10,15 +10,15 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.displayCutoutPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -111,7 +111,6 @@ fun HomeScreen(
     Box(
         Modifier
             .fillMaxSize()
-            .displayCutoutPadding()
             .onGloballyPositioned { dragState.boxRoot = it.positionInRoot() }
             .pointerInput(Unit) {
                 detectTapGestures(
@@ -142,16 +141,20 @@ fun HomeScreen(
                 }
             }
     ) {
-        Column(
+        Box(
             Modifier
                 .fillMaxSize()
                 .imePadding()
                 .navigationBarsPadding()
         ) {
+            val searchBarOverlap = SearchBarMargin + SearchBarHeight / 2
+            val topContentPadding = WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding() + 16.dp
+            val bottomContentPadding = SearchBarHeight / 2 + SearchBarMargin
+
             BoxWithConstraints(
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
+                    .fillMaxSize()
+                    .padding(bottom = searchBarOverlap)
             ) {
                 val measuredListWidth = constraints.maxWidth.toFloat()
                 val rowWidthPx = (measuredListWidth - 2f * with(LocalDensity.current) { ListHorizontalPadding.toPx() })
@@ -167,14 +170,16 @@ fun HomeScreen(
                     userScrollEnabled = dragState.drag == null,
                     modifier = Modifier
                         .fillMaxSize()
-                        .statusBarsPadding()
                         .onGloballyPositioned {
                             val pos = it.positionInRoot()
                             dragState.listRootX = pos.x
                             dragState.listWidth = it.size.width.toFloat()
                         }
                         .padding(horizontal = ListHorizontalPadding),
-                    contentPadding = PaddingValues(top = 16.dp),
+                    contentPadding = PaddingValues(
+                        top = topContentPadding,
+                        bottom = bottomContentPadding
+                    ),
                     verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)
                 ) {
                     val extracting = items.getOrNull(dragState.drag?.from ?: -1)?.isGroup == true
@@ -299,7 +304,9 @@ fun HomeScreen(
                 focusRequester = focusRequester,
                 onQueryChange = onQueryChange,
                 onSearch = { items.lastOrNull()?.apps?.firstOrNull()?.let(onLaunch) },
-                modifier = Modifier.padding(SearchBarMargin)
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(SearchBarMargin)
             )
         }
 
