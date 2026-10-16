@@ -3,9 +3,6 @@
 # Use this instead of probing adb in a sandbox — that hangs on the adb server socket.
 set -eu
 cd "$(dirname "$0")/.."
-# shellcheck disable=SC1091
-. "$(dirname "$0")/jdk.sh"
-
 export ANDROID_HOME="${ANDROID_HOME:-/opt/homebrew/share/android-commandlinetools}"
 ADB="$ANDROID_HOME/platform-tools/adb"
 APK="app/build/outputs/apk/debug/app-debug.apk"

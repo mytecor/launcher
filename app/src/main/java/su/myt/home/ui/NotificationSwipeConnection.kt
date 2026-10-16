@@ -46,7 +46,9 @@ internal class NotificationSwipeConnection(
         available: Offset,
         source: NestedScrollSource
     ): Offset {
+        if (source != NestedScrollSource.UserInput) return Offset.Zero
         if (!startedAtTop || isSearching() || isDragActive()) {
+            startedAtTop = false
             totalDragY = 0f
             totalDragX = 0f
             return Offset.Zero

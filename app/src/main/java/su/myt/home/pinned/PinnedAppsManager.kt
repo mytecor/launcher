@@ -1,9 +1,9 @@
 package su.myt.home.pinned
 
+import android.os.Process
 import su.myt.home.data.PinnedStorage
 import su.myt.home.model.App
 import su.myt.home.model.AppGroup
-import java.util.Collections
 
 class PinnedAppsManager(private val storage: PinnedStorage) {
     companion object {
@@ -12,114 +12,64 @@ class PinnedAppsManager(private val storage: PinnedStorage) {
 
     private val pinnedOrder: MutableList<MutableList<String>> = storage.loadPinnedOrder()
 
+    private var availableAppIds: Set<String>? = null
+    private data class HiddenAnchor(val oldMember: String, val remainingMember: String)
+
     fun getPinnedIds(): List<String> = pinnedOrder.flatten()
 
-    fun isPinned(app: App): Boolean {
-        val allIds = getPinnedIds()
-        return app.id in allIds || (app.userSerial == 0L && app.component.flattenToString() in allIds)
-    }
+    fun isPinned(app: App): Boolean = pinnedOrder.any { app.id in it }
 
     fun syncWithLoadedApps(allApps: List<App>) {
-        if (!storage.hasPinnedOrder() && pinnedOrder.isNotEmpty()) {
-            val existingIds = pinnedOrder.flatten().toSet()
-            val sorted = allApps.filter { it.id in existingIds || it.component.flattenToString() in existingIds }
-                .map { mutableListOf(it.id) }
-            pinnedOrder.clear()
-            pinnedOrder.addAll(sorted)
-            storage.savePinnedOrder(pinnedOrder)
-            return
+        availableAppIds = allApps.mapTo(mutableSetOf()) { it.id }
+        val hasOrder = storage.hasPinnedOrder()
+        val currentUser = Process.myUserHandle()
+        val currentProfileIds = allApps.filter { it.userSerial != 0L && it.user == currentUser }
+            .associate { it.component.flattenToString() to it.id }
+        // Older PackageManager fallbacks wrote unprefixed IDs even for a secondary current user.
+        val seen = mutableSetOf<String>()
+        val migrated = pinnedOrder.mapNotNull { group ->
+            group.map { currentProfileIds[it] ?: it }.filter { seen.add(it) }
+                .takeIf { it.isNotEmpty() }?.toMutableList()
         }
-
-        val validIds = allApps.map { it.id }.toSet()
-        val validLegacyIds = allApps.filter { it.userSerial == 0L }.map { it.component.flattenToString() }.toSet()
-        var changed = false
-        val iterator = pinnedOrder.iterator()
-        while (iterator.hasNext()) {
-            val group = iterator.next()
-            val beforeSize = group.size
-            group.removeAll { id -> id !in validIds && id !in validLegacyIds }
-            if (group.size != beforeSize) changed = true
-            if (group.isEmpty()) {
-                iterator.remove()
-                changed = true
-            }
-        }
+        var changed = migrated != pinnedOrder
         if (changed) {
-            storage.savePinnedOrder(pinnedOrder)
+            pinnedOrder.clear()
+            pinnedOrder.addAll(migrated)
         }
+        if (!hasOrder && pinnedOrder.isNotEmpty()) {
+            val existingIds = getPinnedIds().toSet()
+            val resolvedIds = allApps.map { it.id }.filter { it in existingIds }
+            val unresolvedIds = existingIds - resolvedIds.toSet()
+            pinnedOrder.clear()
+            (resolvedIds + unresolvedIds).forEach { pinnedOrder.add(mutableListOf(it)) }
+            changed = true
+        }
+        if (changed) saveOrder()
+        // A missing app may belong to a paused/locked profile. Keep its pin until explicitly unpinned.
     }
 
     fun getPinnedGroups(allApps: List<App>): MutableList<AppGroup> {
         val appMap = allApps.associateBy { it.id }
-        val homeGroups = mutableListOf<AppGroup>()
-        for (group in pinnedOrder) {
-            val resolved = mutableListOf<App>()
-            for (id in group) {
-                val app = appMap[id] ?: allApps.find { it.userSerial == 0L && it.component.flattenToString() == id }
-                if (app != null) resolved.add(app)
-            }
-            if (resolved.isNotEmpty()) {
-                homeGroups.add(AppGroup(resolved))
-            }
-        }
-        return homeGroups
-    }
-
-    fun insertRow(index: Int, app: App) {
-        val insertIdx = index.coerceIn(0, pinnedOrder.size)
-        pinnedOrder.add(insertIdx, mutableListOf(app.id))
-        saveOrder()
-    }
-
-    fun addAppToGroup(groupIndex: Int, slotIndex: Int = -1, app: App) {
-        if (groupIndex in pinnedOrder.indices) {
-            val group = pinnedOrder[groupIndex]
-            val insertIdx = if (slotIndex < 0 || slotIndex > group.size) group.size else slotIndex
-            group.add(insertIdx, app.id)
-            saveOrder()
-        } else {
-            insertRow(pinnedOrder.size, app)
-        }
-    }
-
-    fun removeAppFromGroup(groupIndex: Int, appIndex: Int) {
-        if (groupIndex in pinnedOrder.indices) {
-            val group = pinnedOrder[groupIndex]
-            if (appIndex in group.indices) {
-                group.removeAt(appIndex)
-                if (group.isEmpty()) {
-                    pinnedOrder.removeAt(groupIndex)
-                }
-                saveOrder()
-            }
+        availableAppIds = appMap.keys
+        return pinnedOrder.mapNotNullTo(mutableListOf()) { group ->
+            group.mapNotNullTo(mutableListOf()) { appMap[it] }
+                .takeIf { it.isNotEmpty() }
+                ?.let { AppGroup(it) }
         }
     }
 
     fun moveItem(items: MutableList<AppGroup>, from: Int, to: Int): Boolean {
-        if (from !in items.indices || to !in items.indices) return false
-        if (from < to) {
-            for (i in from until to) {
-                Collections.swap(items, i, i + 1)
-                if (i in pinnedOrder.indices && (i + 1) in pinnedOrder.indices) {
-                    Collections.swap(pinnedOrder, i, i + 1)
-                }
-            }
-        } else {
-            for (i in from downTo to + 1) {
-                Collections.swap(items, i, i - 1)
-                if (i in pinnedOrder.indices && (i - 1) in pinnedOrder.indices) {
-                    Collections.swap(pinnedOrder, i, i - 1)
-                }
-            }
-        }
+        if (from !in items.indices || to !in items.indices || from == to) return false
+        items.add(to, items.removeAt(from))
+        syncOrderFromGroups(items)
         return true
     }
 
-    fun canGroup(items: List<AppGroup>, from: Int, to: Int): Boolean {
+    fun canGroup(items: List<AppGroup>, from: Int, to: Int, extracting: Boolean = false): Boolean {
         if (from !in items.indices || to !in items.indices || from == to) return false
-        val fromSize = items[from].apps.size
-        val toSize = items[to].apps.size
-        return (fromSize + toSize) <= MAX_GROUP_SIZE
+        if (extracting && !items[from].isGroup) return false
+        val movedSize = if (extracting) 1 else storedGroupSize(items[from])
+        return movedSize + storedGroupSize(items[to]) <= MAX_GROUP_SIZE
     }
 
     fun groupItems(items: MutableList<AppGroup>, from: Int, to: Int, slotIndex: Int = -1): Boolean {
@@ -131,12 +81,7 @@ class PinnedAppsManager(private val storage: PinnedStorage) {
         toItem.apps.addAll(insertIdx, fromItem.apps)
         items.removeAt(from)
 
-        if (from in pinnedOrder.indices && to in pinnedOrder.indices) {
-            val fromIds = pinnedOrder[from]
-            pinnedOrder[to].addAll(insertIdx, fromIds)
-            pinnedOrder.removeAt(from)
-        }
-        saveOrder()
+        syncOrderFromGroups(items)
         return true
     }
 
@@ -175,7 +120,7 @@ class PinnedAppsManager(private val storage: PinnedStorage) {
         val insertPos = targetPosition.coerceIn(0, items.size)
         items.add(insertPos, AppGroup(mutableListOf(extracted)))
 
-        syncOrderFromGroups(items)
+        syncOrderFromGroups(items, HiddenAnchor(extracted.id, group.apps.first().id))
         return true
     }
 
@@ -186,18 +131,14 @@ class PinnedAppsManager(private val storage: PinnedStorage) {
         targetGroupIndex: Int,
         slotIndex: Int = -1
     ): Boolean {
-        if (groupIndex !in items.indices || targetGroupIndex !in items.indices || groupIndex == targetGroupIndex) return false
+        if (!canGroup(items, groupIndex, targetGroupIndex, extracting = true)) return false
         val group = items[groupIndex]
         val targetGroup = items[targetGroupIndex]
-        if (appIndex !in group.apps.indices || group.apps.size <= 1) return false
-        if (targetGroup.apps.size >= MAX_GROUP_SIZE) return false
+        if (appIndex !in group.apps.indices) return false
 
         val extracted = group.apps.removeAt(appIndex)
         targetGroup.apps.add(insertIndex(targetGroup.apps.size, slotIndex), extracted)
-        if (group.apps.isEmpty()) {
-            items.removeAt(groupIndex)
-        }
-        syncOrderFromGroups(items)
+        syncOrderFromGroups(items, HiddenAnchor(extracted.id, group.apps.first().id))
         return true
     }
 
@@ -207,35 +148,62 @@ class PinnedAppsManager(private val storage: PinnedStorage) {
         if (appIndex !in group.apps.indices) return false
 
         group.apps.removeAt(appIndex)
-        if (groupIndex in pinnedOrder.indices) {
-            val orderGroup = pinnedOrder[groupIndex]
-            if (appIndex in orderGroup.indices) {
-                orderGroup.removeAt(appIndex)
-            }
-        }
-
-        if (group.apps.isEmpty()) {
-            items.removeAt(groupIndex)
-            if (groupIndex in pinnedOrder.indices) {
-                pinnedOrder.removeAt(groupIndex)
-            }
-        }
-        saveOrder()
+        if (group.apps.isEmpty()) items.removeAt(groupIndex)
+        syncOrderFromGroups(items)
         return true
     }
 
-    fun syncOrderFromGroups(groups: List<AppGroup>) {
-        pinnedOrder.clear()
-        for (group in groups) {
-            val ids = group.apps.map { it.id }.filter { it.isNotEmpty() }
-            if (ids.isNotEmpty()) {
-                pinnedOrder.add(ids.toMutableList())
+    fun syncOrderFromGroups(groups: List<AppGroup>) = syncOrderFromGroups(groups, null)
+
+    private fun syncOrderFromGroups(groups: List<AppGroup>, hiddenAnchor: HiddenAnchor?) {
+        val order = groups.map { group -> group.apps.map { it.id }.toMutableList() }.toMutableList()
+        val unavailable = unavailableIds() - order.flatten().toSet()
+        val hiddenGroups = mutableListOf<Pair<Int, MutableList<String>>>()
+        for ((oldIndex, oldGroup) in pinnedOrder.withIndex()) {
+            val hidden = oldGroup.filter { it in unavailable }
+            if (hidden.isEmpty()) continue
+            // Extraction leaves hidden members with the source, even when both new rows share one old ID.
+            val anchored = hiddenAnchor?.takeIf { it.oldMember in oldGroup }
+                ?.let { anchor -> order.firstOrNull { anchor.remainingMember in it } }
+            val target = anchored ?: order.maxByOrNull { group -> group.count { it in oldGroup } }
+                ?.takeIf { group -> group.any { it in oldGroup } }
+            if (target == null) {
+                hiddenGroups.add(oldIndex to hidden.toMutableList())
+                continue
+            }
+            // Keep unavailable members alongside their group, preserving their relative slots.
+            for ((index, id) in oldGroup.withIndex()) {
+                if (id !in unavailable) continue
+                val before = oldGroup.take(index).lastOrNull { it in target }
+                val after = oldGroup.drop(index + 1).firstOrNull { it in target }
+                val slot = when {
+                    before != null -> target.indexOf(before) + 1
+                    after != null -> target.indexOf(after)
+                    else -> target.size
+                }
+                target.add(slot, id)
             }
         }
+        // Fully hidden rows retain their place while the visible rows are edited.
+        for ((index, group) in hiddenGroups) order.add(index.coerceAtMost(order.size), group)
+        pinnedOrder.clear()
+        pinnedOrder.addAll(order.filter { it.isNotEmpty() })
         saveOrder()
     }
 
-    fun saveOrder() {
+    private fun unavailableIds(): Set<String> {
+        val available = availableAppIds ?: return emptySet()
+        return getPinnedIds().filterNotTo(mutableSetOf()) { it in available }
+    }
+
+    private fun storedGroupSize(group: AppGroup): Int {
+        val ids = group.apps.mapTo(mutableSetOf()) { it.id }
+        val hidden = unavailableIds()
+        val stored = pinnedOrder.firstOrNull { row -> row.any { it in ids } }
+        return group.apps.size + (stored?.count { it in hidden } ?: 0)
+    }
+
+    private fun saveOrder() {
         storage.savePinnedOrder(pinnedOrder)
     }
 
@@ -250,7 +218,7 @@ class PinnedAppsManager(private val storage: PinnedStorage) {
             val iterator = pinnedOrder.iterator()
             while (iterator.hasNext()) {
                 val group = iterator.next()
-                group.removeAll { it == app.id || (app.userSerial == 0L && it == app.component.flattenToString()) }
+                group.removeAll { it == app.id }
                 if (group.isEmpty()) {
                     iterator.remove()
                 }
@@ -258,7 +226,7 @@ class PinnedAppsManager(private val storage: PinnedStorage) {
         } else {
             pinnedOrder.add(mutableListOf(app.id))
         }
-        storage.savePinnedOrder(pinnedOrder)
+        saveOrder()
         return !wasPinned
     }
 }

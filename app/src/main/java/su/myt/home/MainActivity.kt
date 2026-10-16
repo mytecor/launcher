@@ -11,6 +11,8 @@ import androidx.activity.compose.setContent
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.referentialEqualityPolicy
 import androidx.compose.runtime.setValue
 import androidx.core.view.WindowCompat
 import su.myt.home.data.AppLauncher
@@ -32,11 +34,12 @@ class MainActivity : ComponentActivity() {
     private val searchEngine = SearchEngine()
 
     private var query by mutableStateOf("")
-    private var allApps by mutableStateOf<List<App>>(emptyList())
+    // App equality omits drawables, but a refresh must still replace the icon sources.
+    private var allApps by mutableStateOf<List<App>>(emptyList(), referentialEqualityPolicy())
     private var loading by mutableStateOf(true)
-    private var pinEpoch by mutableIntStateOf(0)
-    private var listInteraction = false
-    private var pendingReload = false
+    private var pinRevision by mutableIntStateOf(0)
+    private var dragActive = false
+    private var pendingApps: List<App>? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -46,18 +49,18 @@ class MainActivity : ComponentActivity() {
         if (cached.isNotEmpty()) {
             allApps = cached
             loading = false
-            pinnedManager.syncWithLoadedApps(cached)
         }
         query = savedInstanceState?.getString("query").orEmpty()
 
         setContent {
             val isSearching = query.trim().isNotEmpty()
-            val items = if (!isSearching) {
-                pinnedManager.getPinnedGroups(allApps)
-            } else {
-                searchEngine.search(allApps, query).map { AppGroup(mutableListOf(it)) }.toMutableList()
+            val items = remember(allApps, query, pinRevision) {
+                if (isSearching) {
+                    searchEngine.search(allApps, query).map { AppGroup(mutableListOf(it)) }.toMutableList()
+                } else {
+                    pinnedManager.getPinnedGroups(allApps)
+                }
             }
-            pinEpoch
             HomeTheme {
                 HomeScreen(
                     query = query,
@@ -70,7 +73,7 @@ class MainActivity : ComponentActivity() {
                     onLaunch = ::launch,
                     onTogglePin = { app ->
                         val added = pinnedManager.togglePin(app)
-                        pinEpoch++
+                        pinRevision++
                         Toast.makeText(
                             this,
                             getString(if (added) R.string.app_pinned else R.string.app_unpinned, app.badgedLabel),
@@ -78,40 +81,23 @@ class MainActivity : ComponentActivity() {
                         ).show()
                     },
                     onMoveItem = { from, to ->
-                        val moved = pinnedManager.moveItem(items, from, to)
-                        if (moved) {
-                            pinnedManager.saveOrder()
-                            pinEpoch++
-                        }
-                        moved
+                        updatePins { pinnedManager.moveItem(items, from, to) }
                     },
                     onGroupItems = { from, to, slot ->
-                        val grouped = pinnedManager.groupItems(items, from, to, slot)
-                        if (grouped) pinEpoch++
-                        grouped
+                        updatePins { pinnedManager.groupItems(items, from, to, slot) }
                     },
-                    onCanGroup = { from, to -> pinnedManager.canGroup(items, from, to) },
+                    onCanGroup = { from, to, extracting -> pinnedManager.canGroup(items, from, to, extracting) },
                     onExtractToPosition = { group, app, target ->
-                        if (pinnedManager.extractAppToPosition(items, group, app, target)) pinEpoch++
+                        updatePins { pinnedManager.extractAppToPosition(items, group, app, target) }
                     },
                     onExtractToGroup = { group, app, target, slot ->
-                        if (pinnedManager.extractAppToGroup(items, group, app, target, slot)) pinEpoch++
+                        updatePins { pinnedManager.extractAppToGroup(items, group, app, target, slot) }
                     },
                     onReorderInGroup = { group, app, slot ->
-                        if (pinnedManager.moveAppInGroup(items, group, app, slot)) pinEpoch++
+                        updatePins { pinnedManager.moveAppInGroup(items, group, app, slot) }
                     },
                     onEmptyLongPress = ::openWallpaperPicker,
-                    onDragActiveChange = { active ->
-                        if (active) {
-                            listInteraction = true
-                        } else {
-                            listInteraction = false
-                            if (pendingReload) {
-                                pendingReload = false
-                                reloadApps()
-                            }
-                        }
-                    },
+                    onDragActiveChange = ::onDragActiveChange,
                     onOpenNotifications = ::openNotificationShade
                 )
             }
@@ -157,17 +143,30 @@ class MainActivity : ComponentActivity() {
         appRepository.loadApps { loaded ->
             runOnUiThread {
                 if (isDestroyed) return@runOnUiThread
-                if (listInteraction) {
-                    pendingReload = true
-                    return@runOnUiThread
-                }
-                val appsChanged = allApps != loaded
-                pinnedManager.syncWithLoadedApps(loaded)
-                allApps = loaded
-                val wasLoading = loading
-                loading = false
-                if (appsChanged || wasLoading) pinEpoch++
+                if (dragActive) pendingApps = loaded else applyLoadedApps(loaded)
             }
+        }
+    }
+
+    private fun applyLoadedApps(apps: List<App>) {
+        pinnedManager.syncWithLoadedApps(apps)
+        allApps = apps
+        loading = false
+        pinRevision++
+    }
+
+    private fun onDragActiveChange(active: Boolean) {
+        dragActive = active
+        if (!active) {
+            pendingApps?.let(::applyLoadedApps)
+            pendingApps = null
+        }
+    }
+
+    private inline fun updatePins(change: () -> Boolean): Boolean {
+        if (query.isNotBlank()) return false
+        return change().also { changed ->
+            if (changed) pinRevision++
         }
     }
 

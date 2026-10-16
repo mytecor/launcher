@@ -17,6 +17,11 @@ class FuzzySearchTest {
         assertEquals(10000, FuzzySearch.score("ЁЖ", "еж"))
         assertEquals(10000, FuzzySearch.score("Café", " CAFE "))
     }
+    @Test fun supportsTyposInIndividualWordsOfLongLabels() {
+        assertNotNull(FuzzySearch.score("YouTube Music", "muisc"))
+        assertNotNull(FuzzySearch.score("Google Play Services", "servcies"))
+        assertNull(FuzzySearch.score("Google Play Services", "abcdefghijk"))
+    }
     @Test fun rejectsUnrelatedAndShortTypos() {
         assertNull(FuzzySearch.score("Camera", "xyz"))
         assertNull(FuzzySearch.score("Maps", "mx"))

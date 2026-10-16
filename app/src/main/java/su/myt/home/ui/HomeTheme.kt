@@ -29,11 +29,6 @@ internal val ItemPlacementSpring = spring<IntOffset>(
     stiffness = AnimStiffness
 )
 
-internal val SlotDpSpring = spring<androidx.compose.ui.unit.Dp>(
-    dampingRatio = Spring.DampingRatioNoBouncy,
-    stiffness = AnimStiffness
-)
-
 internal val UiFadeSpec = androidx.compose.animation.core.tween<Float>(durationMillis = 240)
 internal val UiScaleSpring = spring<Float>(
     dampingRatio = Spring.DampingRatioMediumBouncy,

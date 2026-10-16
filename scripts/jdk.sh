@@ -1,3 +1,4 @@
+# shellcheck shell=sh
 # POSIX helper, sourced by gradlew and build scripts.
 # Picks a JDK 17 without calling macOS java_home first — that scan can stall
 # for tens of seconds when the runtime lives outside /Library/Java.
@@ -25,7 +26,7 @@ if _jdk_usable "${JAVA_HOME:-}"; then
     export JAVA_HOME
     unset _jdk_home_file
     unset -f _jdk_usable
-    return 0 2>/dev/null || :
+    return 0
 fi
 
 if [ -n "$_jdk_home_file" ] && [ -f "$_jdk_home_file" ]; then
@@ -35,7 +36,7 @@ if [ -n "$_jdk_home_file" ] && [ -f "$_jdk_home_file" ]; then
         export JAVA_HOME
         unset _jdk_home _jdk_home_file
         unset -f _jdk_usable
-        return 0 2>/dev/null || :
+        return 0
     fi
     unset _jdk_home
 fi
@@ -52,7 +53,7 @@ if [ -d "$_jdk_root" ]; then
                 printf '%s\n' "$JAVA_HOME" > "$_jdk_home_file"
             fi
             unset _jdk_home_file
-            return 0 2>/dev/null || :
+            return 0
         fi
     done
     unset _jdk_dir
@@ -73,7 +74,7 @@ do
             printf '%s\n' "$JAVA_HOME" > "$_jdk_home_file"
         fi
         unset _jdk_home_file
-        return 0 2>/dev/null || :
+        return 0
     fi
 done
 unset _jdk_home

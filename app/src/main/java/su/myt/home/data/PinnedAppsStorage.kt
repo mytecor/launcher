@@ -2,6 +2,7 @@ package su.myt.home.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.core.content.edit
 import org.json.JSONArray
 
 interface PinnedStorage {
@@ -17,37 +18,30 @@ class PinnedAppsStorage(context: Context) : PinnedStorage {
 
     override fun loadPinnedOrder(): MutableList<MutableList<String>> {
         val saved = prefs.getString("pinned_order", null)
-        return if (saved != null) {
+        val groups = if (saved != null) {
             try {
                 val json = JSONArray(saved)
-                val list = mutableListOf<MutableList<String>>()
-                for (i in 0 until json.length()) {
-                    val item = json.get(i)
-                    if (item is JSONArray) {
-                        val group = mutableListOf<String>()
-                        for (j in 0 until item.length()) {
-                            group.add(item.getString(j))
-                        }
-                        if (group.isNotEmpty()) list.add(group)
-                    } else if (item is String) {
-                        list.add(mutableListOf(item))
+                List(json.length()) { i ->
+                    when (val item = json.opt(i)) {
+                        is JSONArray -> List(item.length()) { item.opt(it) }.filterIsInstance<String>()
+                        is String -> listOf(item)
+                        else -> emptyList()
                     }
                 }
-                list
             } catch (_: Exception) {
-                mutableListOf()
+                emptyList()
             }
         } else {
             val legacy = prefs.getStringSet("pinned", emptySet()) ?: emptySet()
-            legacy.map { mutableListOf(it) }.toMutableList()
+            legacy.map { listOf(it) }
         }
+        return normalizeOrder(groups).map { it.toMutableList() }.toMutableList()
     }
 
     override fun savePinnedOrder(pinnedOrder: List<List<String>>) {
         val json = JSONArray()
         val allIds = mutableSetOf<String>()
-        for (group in pinnedOrder) {
-            if (group.isEmpty()) continue
+        for (group in normalizeOrder(pinnedOrder)) {
             if (group.size == 1) {
                 json.put(group[0])
                 allIds.add(group[0])
@@ -60,9 +54,16 @@ class PinnedAppsStorage(context: Context) : PinnedStorage {
                 json.put(groupArray)
             }
         }
-        prefs.edit()
-            .putString("pinned_order", json.toString())
-            .putStringSet("pinned", allIds)
-            .apply()
+        prefs.edit {
+            putString("pinned_order", json.toString())
+            putStringSet("pinned", allIds)
+        }
+    }
+
+    private fun normalizeOrder(groups: List<List<String>>): List<List<String>> {
+        val seen = mutableSetOf<String>()
+        return groups.mapNotNull { group ->
+            group.filter { it.isNotBlank() && seen.add(it) }.takeIf { it.isNotEmpty() }
+        }
     }
 }

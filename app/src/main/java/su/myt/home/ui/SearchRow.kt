@@ -44,6 +44,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import su.myt.home.R
+import su.myt.home.search.SearchEngine
 
 @Composable
 internal fun SearchRow(
@@ -77,7 +78,7 @@ internal fun SearchRow(
         ) {
             BasicTextField(
                 value = query,
-                onValueChange = { onQueryChange(it.take(100)) },
+                onValueChange = { onQueryChange(it.take(SearchEngine.MAX_QUERY_LENGTH)) },
                 modifier = Modifier
                     .weight(1f)
                     .padding(start = 16.dp, end = 8.dp)

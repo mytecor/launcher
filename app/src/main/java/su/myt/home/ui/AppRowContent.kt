@@ -37,7 +37,7 @@ internal fun AppRowContent(
     app: App,
     showStar: Boolean,
     foreground: Color,
-    accent: Color,
+    accent: Color = foreground,
     loadIcon: (App, (Drawable) -> Unit) -> Drawable?,
     compact: Boolean = false
 ) {

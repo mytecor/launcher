@@ -11,34 +11,31 @@ import android.os.Process
 import android.os.UserHandle
 import android.os.UserManager
 import su.myt.home.model.App
+import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 
 class AppRepository(
-    private val context: Context,
+    context: Context,
     private val worker: ExecutorService = Executors.newSingleThreadExecutor(),
     private val appCache: AppCache = AppCache(context)
 ) {
+    private val context = context.applicationContext ?: context
+    private var observing = false
+    @Volatile private var closed = false
     private val launcherAppsCallback = object : LauncherApps.Callback() {
-        override fun onPackageRemoved(packageName: String?, user: UserHandle?) {
-            packageName?.let { appCache.invalidatePackage(it) }
-            notifyChanged()
-        }
-        override fun onPackageAdded(packageName: String?, user: UserHandle?) {
-            packageName?.let { appCache.invalidatePackage(it) }
-            notifyChanged()
-        }
-        override fun onPackageChanged(packageName: String?, user: UserHandle?) {
-            packageName?.let { appCache.invalidatePackage(it) }
-            notifyChanged()
-        }
-        override fun onPackagesAvailable(packageNames: Array<out String>?, user: UserHandle?, replacing: Boolean) {
-            packageNames?.forEach { appCache.invalidatePackage(it) }
-            notifyChanged()
-        }
-        override fun onPackagesUnavailable(packageNames: Array<out String>?, user: UserHandle?, replacing: Boolean) = notifyChanged()
-        override fun onPackagesSuspended(packageNames: Array<out String>?, user: UserHandle?) = notifyChanged()
-        override fun onPackagesUnsuspended(packageNames: Array<out String>?, user: UserHandle?) = notifyChanged()
+        override fun onPackageRemoved(packageName: String?, user: UserHandle?) = notifyChanged(packageName)
+        override fun onPackageAdded(packageName: String?, user: UserHandle?) = notifyChanged(packageName)
+        override fun onPackageChanged(packageName: String?, user: UserHandle?) = notifyChanged(packageName)
+        override fun onPackagesAvailable(packageNames: Array<out String>?, user: UserHandle?, replacing: Boolean) =
+            notifyChanged(*packageNames.orEmpty())
+        override fun onPackagesUnavailable(packageNames: Array<out String>?, user: UserHandle?, replacing: Boolean) =
+            notifyChanged(*packageNames.orEmpty())
+        override fun onPackagesSuspended(packageNames: Array<out String>?, user: UserHandle?) =
+            notifyChanged(*packageNames.orEmpty())
+        override fun onPackagesUnsuspended(packageNames: Array<out String>?, user: UserHandle?) =
+            notifyChanged(*packageNames.orEmpty())
     }
 
     private val profileReceiver = object : BroadcastReceiver() {
@@ -50,7 +47,10 @@ class AppRepository(
     private var onAppsChangedListener: (() -> Unit)? = null
 
     fun startObserving(onChanged: () -> Unit) {
+        if (closed) return
         this.onAppsChangedListener = onChanged
+        if (observing) return
+        observing = true
         try {
             context.getSystemService(LauncherApps::class.java)?.registerCallback(launcherAppsCallback)
         } catch (_: Exception) {}
@@ -65,22 +65,27 @@ class AppRepository(
     }
 
     fun stopObserving() {
+        this.onAppsChangedListener = null
+        if (!observing) return
+        observing = false
         try {
             context.unregisterReceiver(profileReceiver)
         } catch (_: Exception) {}
         try {
             context.getSystemService(LauncherApps::class.java)?.unregisterCallback(launcherAppsCallback)
         } catch (_: Exception) {}
-        this.onAppsChangedListener = null
     }
 
     fun shutdown() {
+        closed = true
         stopObserving()
-        worker.shutdown()
+        worker.shutdownNow()
         appCache.shutdown()
     }
 
-    private fun notifyChanged() {
+    private fun notifyChanged(vararg packageNames: String?) {
+        if (closed) return
+        packageNames.filterNotNull().forEach(appCache::invalidatePackage)
         onAppsChangedListener?.invoke()
     }
 
@@ -89,10 +94,17 @@ class AppRepository(
     fun loadIcon(app: App, onLoaded: (Drawable) -> Unit): Drawable? = appCache.loadIcon(app, onLoaded)
 
     fun loadApps(onResult: (List<App>) -> Unit) {
-        worker.execute {
-            val apps = fetchApps()
-            appCache.saveApps(apps)
-            onResult(apps)
+        if (closed) return
+        try {
+            worker.execute {
+                if (closed) return@execute
+                val apps = fetchApps()
+                if (closed) return@execute
+                appCache.saveApps(apps)
+                if (!closed) onResult(apps)
+            }
+        } catch (_: RejectedExecutionException) {
+            // A refresh can race with the Activity shutting down.
         }
     }
 
@@ -101,81 +113,90 @@ class AppRepository(
         val userManager = context.getSystemService(UserManager::class.java)
         val packageManager = context.packageManager
         val packageName = context.packageName
+        val currentUser = Process.myUserHandle()
+        val currentUserSerial = userSerial(userManager, currentUser) ?: 0L
 
         val profiles = try {
-            userManager?.userProfiles ?: listOf(Process.myUserHandle())
+            userManager?.userProfiles.orEmpty()
         } catch (_: Exception) {
-            listOf(Process.myUserHandle())
+            emptyList()
         }
         val loaded = mutableListOf<App>()
-        var successLauncherApps = false
+        var currentProfileLoaded = false
 
         if (launcherApps != null) {
-            try {
-                for (user in profiles) {
-                    val userSerial = try {
-                        userManager?.getSerialNumberForUser(user) ?: 0L
-                    } catch (_: Exception) {
-                        0L
-                    }
-                    val activities = launcherApps.getActivityList(null, user)
-                    for (info in activities) {
-                        if (info.componentName.packageName == packageName) continue
-                        val label = info.label.toString()
-                        val badgedLabel = try {
-                            packageManager.getUserBadgedLabel(label, user).toString()
-                        } catch (_: Exception) {
-                            label
-                        }
-                        val icon = try {
-                            info.getBadgedIcon(0)
-                        } catch (_: Exception) {
-                            null
-                        }
-                        loaded.add(
-                            App(
-                                label = label,
-                                badgedLabel = badgedLabel,
-                                component = info.componentName,
-                                user = user,
-                                userSerial = userSerial,
-                                icon = icon
-                            )
-                        )
-                    }
+            for (user in (profiles + currentUser).distinct()) {
+                val userSerial = if (user == currentUser) currentUserSerial
+                    else userSerial(userManager, user) ?: continue
+                val activities = try {
+                    launcherApps.getActivityList(null, user)
+                } catch (_: Exception) {
+                    // A locked/removed work profile must not discard other profiles.
+                    continue
                 }
-                successLauncherApps = true
-            } catch (_: Exception) {
-                // Fallback to PackageManager
+                if (user == currentUser) currentProfileLoaded = true
+                for (info in activities) {
+                    if (info.componentName.packageName == packageName) continue
+                    val label = try {
+                        info.label.toString()
+                    } catch (_: Exception) {
+                        info.componentName.packageName
+                    }
+                    val badgedLabel = try {
+                        packageManager.getUserBadgedLabel(label, user).toString()
+                    } catch (_: Exception) {
+                        label
+                    }
+                    loaded.add(
+                        App(
+                            label = label,
+                            badgedLabel = badgedLabel,
+                            component = info.componentName,
+                            user = user,
+                            userSerial = userSerial
+                        )
+                    )
+                }
             }
         }
 
-        val finalApps = if (successLauncherApps && loaded.isNotEmpty()) {
-            loaded
-        } else {
-            val myUser = Process.myUserHandle()
+        if (!currentProfileLoaded) {
             val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-            packageManager.queryIntentActivities(intent, 0)
+            val activities = try {
+                packageManager.queryIntentActivities(intent, 0)
+            } catch (_: Exception) {
+                // Preserve the last known snapshot when the system cannot be queried.
+                return if (loaded.isEmpty()) appCache.loadApps() else loaded
+            }
+            loaded += activities
                 .filter { it.activityInfo.packageName != packageName }
                 .map {
-                    val label = it.loadLabel(packageManager).toString()
-                    val icon = try { it.loadIcon(packageManager) } catch (_: Exception) { null }
+                    val label = try {
+                        it.loadLabel(packageManager).toString()
+                    } catch (_: Exception) {
+                        it.activityInfo.packageName
+                    }
                     val component = ComponentName(it.activityInfo.packageName, it.activityInfo.name)
                     App(
                         label = label,
                         badgedLabel = label,
                         component = component,
-                        user = myUser,
-                        userSerial = 0L,
-                        icon = icon
+                        user = currentUser,
+                        userSerial = currentUserSerial
                     )
                 }
         }
 
-        return finalApps.distinctBy { it.id }.sortedWith(
-            compareBy<App> { it.label.lowercase() }
+        return loaded.distinctBy { it.id }.sortedWith(
+            compareBy<App> { it.label.lowercase(Locale.ROOT) }
                 .thenBy { it.userSerial }
                 .thenBy { it.id }
         )
+    }
+
+    private fun userSerial(userManager: UserManager?, user: UserHandle): Long? = try {
+        userManager?.getSerialNumberForUser(user)?.takeIf { it >= 0L }
+    } catch (_: Exception) {
+        null
     }
 }

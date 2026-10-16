@@ -16,7 +16,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import android.util.LruCache
@@ -45,7 +45,7 @@ fun AppIcon(
     loadIcon: (App, (Drawable) -> Unit) -> Drawable?,
     modifier: Modifier = Modifier
 ) {
-    val resources = LocalContext.current.resources
+    val resources = LocalResources.current
     val iconSizePx = with(LocalDensity.current) { IconSize.roundToPx().coerceAtLeast(1) }
     val configuration = Configuration(LocalConfiguration.current)
     val key = IconBitmapKey(app.id, iconSizePx, configuration)

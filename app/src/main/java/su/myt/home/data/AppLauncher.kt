@@ -4,6 +4,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.LauncherApps
+import android.os.Process
 import su.myt.home.model.App
 
 sealed class LaunchResult {
@@ -16,21 +17,33 @@ class AppLauncher(private val context: Context) {
     fun launch(app: App): LaunchResult {
         return try {
             val launcherApps = context.getSystemService(LauncherApps::class.java)
-            launcherApps?.startMainActivity(app.component, app.user, null, null)
+            if (launcherApps != null) {
+                launcherApps.startMainActivity(app.component, app.user, null, null)
+            } else {
+                return launchInCurrentProfile(app)
+            }
             LaunchResult.Success
         } catch (_: ActivityNotFoundException) {
             LaunchResult.NotFound
         } catch (_: SecurityException) {
-            try {
-                context.startActivity(
-                    Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-                        .setComponent(app.component)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-                )
-                LaunchResult.Success
-            } catch (_: Exception) {
-                LaunchResult.Failed
-            }
+            launchInCurrentProfile(app)
+        } catch (_: Exception) {
+            LaunchResult.Failed
+        }
+    }
+
+    private fun launchInCurrentProfile(app: App): LaunchResult {
+        // An ordinary intent always launches in our profile, never in app.user.
+        if (app.user != Process.myUserHandle()) return LaunchResult.Failed
+        return try {
+            context.startActivity(
+                Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+                    .setComponent(app.component)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+            )
+            LaunchResult.Success
+        } catch (_: ActivityNotFoundException) {
+            LaunchResult.NotFound
         } catch (_: Exception) {
             LaunchResult.Failed
         }

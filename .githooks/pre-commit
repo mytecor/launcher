@@ -1,6 +1,4 @@
 #!/bin/sh
 set -eu
 cd "$(git rev-parse --show-toplevel)"
-# shellcheck disable=SC1091
-. ./scripts/jdk.sh
 exec ./gradlew testDebugUnitTest lintDebug

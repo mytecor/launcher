@@ -2,15 +2,19 @@ package su.myt.home
 
 import java.text.Normalizer
 import java.util.Locale
+import kotlin.math.abs
 
 /** Higher scores are more relevant; null means no match. */
 object FuzzySearch {
-    private fun normalize(value: String) = Normalizer.normalize(value, Normalizer.Form.NFD)
-        .replace(Regex("\\p{M}+"), "").lowercase(Locale.ROOT).replace('ё', 'е').trim()
+    private val accents = Regex("\\p{M}+")
+    private val whitespace = Regex("\\s+")
 
-    fun score(label: String, query: String): Int? {
-        val name = normalize(label)
-        val needle = normalize(query)
+    internal fun normalize(value: String): String = Normalizer.normalize(value, Normalizer.Form.NFD)
+        .replace(accents, "").lowercase(Locale.ROOT).replace('ё', 'е').trim()
+
+    fun score(label: String, query: String): Int? = scoreNormalized(normalize(label), normalize(query))
+
+    internal fun scoreNormalized(name: String, needle: String): Int? {
         if (needle.isEmpty()) return 0
         if (name == needle) return 10000
         if (name.startsWith(needle)) return 8000 - name.length
@@ -31,7 +35,10 @@ object FuzzySearch {
         // Damerau-Levenshtein also allows an adjacent letter transposition.
         if (needle.length < 3) return null
         val allowance = if (needle.length >= 6) 2 else 1
-        val distance = (listOf(name) + name.split(Regex("\\s+"))).minOf { distance(it, needle) }
+        val distance = (sequenceOf(name) + whitespace.splitToSequence(name))
+            .distinct()
+            .filter { abs(it.length - needle.length) <= allowance }
+            .minOfOrNull { distance(it, needle) } ?: return null
         return if (distance <= allowance) 2000 - distance * 100 - name.length else null
     }
 

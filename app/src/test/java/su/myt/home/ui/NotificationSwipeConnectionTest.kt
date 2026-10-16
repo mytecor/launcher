@@ -28,6 +28,28 @@ class NotificationSwipeConnectionTest {
     )
 
     @Test
+    fun programmaticScrollDoesNotOpenNotificationsOrAccumulateDistance() {
+        connection.onPreScroll(Offset(0f, 10f), NestedScrollSource.UserInput)
+        connection.onPostScroll(Offset.Zero, Offset(0f, 150f), NestedScrollSource.SideEffect)
+        assertEquals(0, openNotificationsCount)
+        assertEquals(0f, connection.totalDragY)
+        connection.onPostScroll(Offset.Zero, Offset(0f, 80f), NestedScrollSource.UserInput)
+        assertEquals(0, openNotificationsCount)
+    }
+
+    @Test
+    fun dragInterruptedByAppDragCannotResumeNotificationGesture() {
+        connection.onPreScroll(Offset(0f, 10f), NestedScrollSource.UserInput)
+        connection.onPostScroll(Offset.Zero, Offset(0f, 80f), NestedScrollSource.UserInput)
+        isDragActive = true
+        connection.onPostScroll(Offset.Zero, Offset(0f, 1f), NestedScrollSource.UserInput)
+        isDragActive = false
+        connection.onPreScroll(Offset(0f, 10f), NestedScrollSource.UserInput)
+        connection.onPostScroll(Offset.Zero, Offset(0f, 150f), NestedScrollSource.UserInput)
+        assertEquals(0, openNotificationsCount)
+    }
+
+    @Test
     fun swipeDownTriggersNotificationWhenGestureStartsAtTop() {
         isAtTop = true
 

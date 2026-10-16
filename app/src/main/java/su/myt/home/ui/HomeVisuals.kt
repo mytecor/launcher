@@ -8,12 +8,9 @@ internal data class DragOverlay(
     val from: Int,
     val appIndex: Int,
     val originX: Float,
-    val originY: Float,
-    val originWidth: Float,
     val x: Float,
     val y: Float,
-    val grabX: Float,
-    val grabY: Float
+    val grabX: Float
 )
 
 internal sealed class GroupVisual {

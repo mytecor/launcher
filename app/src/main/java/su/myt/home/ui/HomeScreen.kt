@@ -36,11 +36,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
@@ -65,7 +63,7 @@ fun HomeScreen(
     onTogglePin: (App) -> Unit,
     onMoveItem: (from: Int, to: Int) -> Boolean,
     onGroupItems: (from: Int, to: Int, slot: Int) -> Boolean,
-    onCanGroup: (from: Int, to: Int) -> Boolean,
+    onCanGroup: (from: Int, to: Int, extracting: Boolean) -> Boolean,
     onExtractToPosition: (group: Int, app: Int, target: Int) -> Unit,
     onExtractToGroup: (group: Int, app: Int, target: Int, slot: Int) -> Unit,
     onReorderInGroup: (group: Int, app: Int, slot: Int) -> Unit,
@@ -106,10 +104,10 @@ fun HomeScreen(
     val latestOpenNotifications = rememberUpdatedState(onOpenNotifications)
     val latestSearching = rememberUpdatedState(isSearching)
 
-    val notificationSwipeConnection = remember {
+    val notificationSwipeConnection = remember(density, keyboard, dragState, listState) {
         NotificationSwipeConnection(
             isSearching = { latestSearching.value },
-            isDragActive = { dragState.dragActive.value },
+            isDragActive = { dragState.dragActive },
             isAtTop = { !listState.canScrollForward },
             swipeThresholdPx = { swipeThresholdPx },
             flingThresholdPx = { flingThresholdPx },
@@ -119,8 +117,8 @@ fun HomeScreen(
             }
         )
     }
-    LaunchedEffect(isSearching) {
-        if (isSearching) notificationSwipeConnection.reset()
+    LaunchedEffect(isSearching, dragState.dragActive) {
+        if (isSearching || dragState.dragActive) notificationSwipeConnection.reset()
     }
 
     fun showIme() {
@@ -133,7 +131,8 @@ fun HomeScreen(
         onQueryChange("")
         showIme()
     }
-    LaunchedEffect(query) {
+    LaunchedEffect(query, isSearching, dragState) {
+        dragState.onDragCancel()
         if (items.isNotEmpty()) listState.scrollToItem(0)
     }
 
@@ -144,41 +143,30 @@ fun HomeScreen(
     val accent = colorResource(R.color.launcher_accent)
 
     val emptyLongPress = rememberUpdatedState(onEmptyLongPress)
-    val boxOrigin = rememberUpdatedState(dragState.boxRoot)
-    val searching = rememberUpdatedState(isSearching)
-    val latestDragMove = rememberUpdatedState<(Offset) -> Unit>({ dragState.onOverlayDrag(it) })
-    val latestDragEnd = rememberUpdatedState({ dragState.onOverlayDragEnd() })
 
     Box(
         Modifier
             .fillMaxSize()
             .onGloballyPositioned { dragState.boxRoot = it.positionInRoot() }
-            .pointerInput(Unit) {
+            .pointerInput(dragState) {
                 detectTapGestures(
                     onLongPress = { offset ->
-                        if (searching.value || dragState.dragActive.value) return@detectTapGestures
-                        val pointerY = offset.y + boxOrigin.value.y
+                        if (latestSearching.value || dragState.dragActive) return@detectTapGestures
+                        val pointerY = offset.y + dragState.boxRoot.y
                         if (!dragState.isOverItem(pointerY)) emptyLongPress.value()
                     }
                 )
             }
-            .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) {
-                        val event = awaitPointerEvent(PointerEventPass.Initial)
-                        if (!dragState.dragActive.value) continue
-                        val change = event.changes.firstOrNull() ?: continue
-                        if (!change.pressed) {
-                            latestDragEnd.value()
-                            change.consume()
-                            continue
-                        }
-                        val delta = change.positionChange()
-                        if (delta != Offset.Zero) {
-                            latestDragMove.value(delta)
-                            change.consume()
+            .pointerInput(dragState) {
+                try {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            dragState.onPointerChanges(event.changes)
                         }
                     }
+                } finally {
+                    dragState.onDragCancel()
                 }
             }
     ) {
@@ -244,7 +232,7 @@ fun HomeScreen(
                         end = ListHorizontalPadding,
                         bottom = bottomContentPadding
                     ),
-                    verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)
+                    verticalArrangement = Arrangement.spacedBy(GroupSpacing, Alignment.Bottom)
                 ) {
                     itemsIndexed(
                         visuals.asReversed(),
@@ -338,21 +326,18 @@ fun HomeScreen(
                                     } else {
                                         null
                                     },
-                                    dragEnabled = !isSearching && !grouping,
-                                    onDragStart = { appIndex, dragged, root, width, grab ->
+                                    dragEnabled = !isSearching && !dragState.dragActive,
+                                    onDragStart = { appIndex, dragged, root, grabX, pointerId ->
                                         view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                                         dragState.onDragStart(
                                             appIndex = appIndex,
                                             dragged = dragged,
                                             root = root,
-                                            width = width,
-                                            grab = grab,
-                                            isGroup = group.isGroup,
-                                            index = index
+                                            grabX = grabX,
+                                            index = index,
+                                            pointerId = pointerId
                                         )
-                                    },
-                                    onDrag = { },
-                                    onDragEnd = { }
+                                    }
                                 )
                             }
                         }

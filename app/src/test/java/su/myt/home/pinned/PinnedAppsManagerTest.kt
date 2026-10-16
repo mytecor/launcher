@@ -2,9 +2,11 @@ package su.myt.home.pinned
 
 import android.content.ComponentName
 import android.os.UserHandle
+import android.os.Process
 import org.junit.Assert.*
 import org.junit.Test
 import org.mockito.Mockito.mock
+import org.mockito.Mockito.mockStatic
 import org.mockito.Mockito.`when`
 import su.myt.home.data.PinnedStorage
 import su.myt.home.model.App
@@ -17,6 +19,7 @@ class PinnedAppsManagerTest {
     ) : PinnedStorage {
         var saved: List<List<String>> = initial.map { it.toMutableList() }
         var hasOrder: Boolean = initial.isNotEmpty()
+        var saveCount: Int = 0
 
         override fun hasPinnedOrder(): Boolean = hasOrder
 
@@ -26,11 +29,12 @@ class PinnedAppsManagerTest {
 
         override fun savePinnedOrder(pinnedOrder: List<List<String>>) {
             hasOrder = true
+            saveCount++
             saved = pinnedOrder.map { it.toMutableList() }
         }
     }
 
-    private fun createApp(pkg: String, cls: String, label: String): App {
+    private fun createApp(pkg: String, cls: String, label: String, userSerial: Long = 0L): App {
         val comp = mock(ComponentName::class.java)
         `when`(comp.flattenToString()).thenReturn("$pkg/$cls")
         val user = mock(UserHandle::class.java)
@@ -39,7 +43,7 @@ class PinnedAppsManagerTest {
             badgedLabel = label,
             component = comp,
             user = user,
-            userSerial = 0L
+            userSerial = userSerial
         )
     }
 
@@ -175,7 +179,6 @@ class PinnedAppsManagerTest {
 
         val moved = manager.moveItem(items, 0, 1)
         assertTrue(moved)
-        manager.saveOrder()
 
         assertEquals(app2, items[0].apps[0])
         assertEquals(app1, items[1].apps[0])
@@ -304,5 +307,209 @@ class PinnedAppsManagerTest {
         assertEquals(1, items.size)
         assertEquals(listOf(app1, app3, app2), items[0].apps)
         assertEquals(listOf(listOf(app1.id, app3.id, app2.id)), storage.saved)
+    }
+
+    @Test
+    fun legacyMigrationKeepsMissingPinsAndDoesNotPinAnotherProfile() {
+        val personal = createApp("com.shared", "Main", "Shared")
+        val work = createApp("com.shared", "Main", "Shared", userSerial = 10L)
+        val missing = createApp("com.missing", "Main", "Missing")
+        val storage = FakeStorage(listOf(listOf(personal.id), listOf(missing.id))).apply { hasOrder = false }
+        val manager = PinnedAppsManager(storage)
+
+        manager.syncWithLoadedApps(listOf(work, personal))
+
+        assertTrue(manager.isPinned(personal))
+        assertFalse(manager.isPinned(work))
+        assertEquals(listOf(listOf(personal.id), listOf(missing.id)), storage.saved)
+    }
+
+    @Test
+    fun unavailableProfilePinsReturnInTheirOriginalGroups() {
+        val personal = createApp("com.personal", "Main", "Personal")
+        val work = createApp("com.work", "Main", "Work", userSerial = 10L)
+        val storage = FakeStorage(listOf(listOf(personal.id, work.id)))
+        val manager = PinnedAppsManager(storage)
+
+        manager.syncWithLoadedApps(listOf(personal))
+        assertEquals(listOf(personal), manager.getPinnedGroups(listOf(personal)).single().apps)
+        assertTrue(manager.isPinned(work))
+        assertEquals(0, storage.saveCount)
+
+        manager.syncWithLoadedApps(listOf(personal, work))
+        assertEquals(listOf(personal, work), manager.getPinnedGroups(listOf(personal, work)).single().apps)
+    }
+
+    @Test
+    fun movingVisibleRowsPreservesHiddenRowsAndSavesOnce() {
+        val first = createApp("com.first", "Main", "First")
+        val second = createApp("com.second", "Main", "Second")
+        val hidden = createApp("com.hidden", "Main", "Hidden", userSerial = 10L)
+        val storage = FakeStorage(listOf(listOf(hidden.id), listOf(first.id), listOf(second.id)))
+        val manager = PinnedAppsManager(storage)
+        val items = manager.getPinnedGroups(listOf(first, second))
+
+        assertTrue(manager.moveItem(items, 0, 1))
+        assertEquals(listOf(listOf(hidden.id), listOf(second.id), listOf(first.id)), storage.saved)
+        assertEquals(1, storage.saveCount)
+        assertFalse(manager.moveItem(items, 0, 0))
+        assertEquals(1, storage.saveCount)
+        assertEquals(
+            listOf(hidden, second, first),
+            manager.getPinnedGroups(listOf(first, second, hidden)).flatMap { it.apps }
+        )
+    }
+
+    @Test
+    fun groupingUnpinningAndTogglingPreserveHiddenGroupMembers() {
+        val first = createApp("com.first", "Main", "First")
+        val second = createApp("com.second", "Main", "Second")
+        val hidden = createApp("com.hidden", "Main", "Hidden", userSerial = 10L)
+        val storage = FakeStorage(listOf(listOf(first.id, hidden.id), listOf(second.id)))
+        val manager = PinnedAppsManager(storage)
+        val items = manager.getPinnedGroups(listOf(first, second))
+
+        assertTrue(manager.groupItems(items, 1, 0))
+        assertEquals(listOf(listOf(first.id, hidden.id, second.id)), storage.saved)
+        assertTrue(manager.unpinApp(items, 0, 0))
+        assertEquals(listOf(listOf(hidden.id, second.id)), storage.saved)
+        assertTrue(manager.togglePin(first))
+        assertEquals(listOf(listOf(hidden.id, second.id), listOf(first.id)), storage.saved)
+        assertFalse(manager.togglePin(first))
+        assertEquals(listOf(listOf(hidden.id, second.id)), storage.saved)
+        manager.syncOrderFromGroups(items)
+        assertEquals(listOf(listOf(hidden.id, second.id)), storage.saved)
+    }
+
+    @Test
+    fun hiddenMembersCountTowardTheGroupLimit() {
+        val first = createApp("com.first", "Main", "First")
+        val second = createApp("com.second", "Main", "Second")
+        val hidden = (1..3).map { createApp("com.hidden$it", "Main", "Hidden $it", userSerial = 10L) }
+        val storage = FakeStorage(listOf(listOf(first.id) + hidden.map { it.id }, listOf(second.id)))
+        val manager = PinnedAppsManager(storage)
+        val items = manager.getPinnedGroups(listOf(first, second))
+
+        assertFalse(manager.canGroup(items, 1, 0))
+        assertFalse(manager.groupItems(items, 1, 0))
+        assertEquals(0, storage.saveCount)
+    }
+
+    @Test
+    fun syncingExplicitlyRestoredAppDoesNotDuplicateItsHiddenPin() {
+        val first = createApp("com.first", "Main", "First")
+        val hidden = createApp("com.hidden", "Main", "Hidden", userSerial = 10L)
+        val storage = FakeStorage(listOf(listOf(first.id, hidden.id)))
+        val manager = PinnedAppsManager(storage)
+        manager.getPinnedGroups(listOf(first))
+
+        manager.syncOrderFromGroups(listOf(AppGroup(mutableListOf(first, hidden))))
+
+        assertEquals(listOf(listOf(first.id, hidden.id)), storage.saved)
+    }
+
+    @Test
+    fun persistedLegacyIdMigratesOnlyToTheCurrentSecondaryUser() {
+        val current = createApp("com.shared", "Main", "Shared", userSerial = 8L)
+        val work = createApp("com.shared", "Main", "Shared", userSerial = 12L)
+        val legacyId = current.component.flattenToString()
+        val storage = FakeStorage(listOf(listOf(legacyId), listOf(current.id)))
+        val manager = PinnedAppsManager(storage)
+        mockStatic(Process::class.java).use { process ->
+            process.`when`<UserHandle> { Process.myUserHandle() }.thenReturn(current.user)
+
+            manager.syncWithLoadedApps(listOf(work, current))
+        }
+
+        assertEquals(listOf(listOf(current.id)), storage.saved)
+        assertTrue(manager.isPinned(current))
+        assertFalse(manager.isPinned(work))
+    }
+
+    @Test
+    fun unresolvedLegacyIdDoesNotMigrateToAnotherProfile() {
+        val current = createApp("com.current", "Main", "Current", userSerial = 8L)
+        val work = createApp("com.shared", "Main", "Shared", userSerial = 12L)
+        val legacyId = work.component.flattenToString()
+        val storage = FakeStorage(listOf(listOf(legacyId)))
+        val manager = PinnedAppsManager(storage)
+        mockStatic(Process::class.java).use { process ->
+            process.`when`<UserHandle> { Process.myUserHandle() }.thenReturn(current.user)
+
+            manager.syncWithLoadedApps(listOf(work, current))
+        }
+
+        assertEquals(listOf(listOf(legacyId)), storage.saved)
+        assertFalse(manager.isPinned(work))
+        assertEquals(0, storage.saveCount)
+    }
+
+    @Test
+    fun extractionHoverAndCommitBothRejectTargetsFilledByHiddenPins() {
+        val target = createApp("com.target", "Main", "Target")
+        val first = createApp("com.first", "Main", "First")
+        val second = createApp("com.second", "Main", "Second")
+        val hidden = (1..3).map { createApp("com.hidden$it", "Main", "Hidden $it", userSerial = 10L) }
+        val initial = listOf(listOf(target.id) + hidden.map { it.id }, listOf(first.id, second.id))
+        val storage = FakeStorage(initial)
+        val manager = PinnedAppsManager(storage)
+        val items = manager.getPinnedGroups(listOf(target, first, second))
+
+        assertFalse(manager.canGroup(items, 1, 0, extracting = true))
+        assertFalse(manager.extractAppToGroup(items, 1, 0, 0))
+        assertEquals(initial, storage.saved)
+        assertEquals(listOf(first, second), items[1].apps)
+        assertEquals(0, storage.saveCount)
+    }
+
+    @Test
+    fun extractionCapacityCountsOnlyTheMovedApp() {
+        val apps = (1..5).map { createApp("com.app$it", "Main", "App $it") }
+        val storage = FakeStorage(listOf(apps.take(3).map { it.id }, apps.drop(3).map { it.id }))
+        val manager = PinnedAppsManager(storage)
+        val items = manager.getPinnedGroups(apps)
+
+        assertFalse(manager.canGroup(items, 1, 0))
+        assertTrue(manager.canGroup(items, 1, 0, extracting = true))
+        assertTrue(manager.extractAppToGroup(items, 1, 0, 0))
+        assertEquals(4, items[0].apps.size)
+        assertFalse(manager.canGroup(items, 1, 0, extracting = true))
+    }
+
+    @Test
+    fun extractionKeepsHiddenMembersInTheSourceWithoutOverfillingTheTarget() {
+        val targetApps = (1..3).map { createApp("com.target$it", "Main", "Target $it") }
+        val extracted = createApp("com.extracted", "Main", "Extracted")
+        val remaining = createApp("com.remaining", "Main", "Remaining")
+        val hidden = (1..2).map { createApp("com.hidden$it", "Main", "Hidden $it", userSerial = 10L) }
+        val sourceIds = listOf(hidden[0].id, extracted.id, hidden[1].id, remaining.id)
+        val storage = FakeStorage(listOf(targetApps.map { it.id }, sourceIds))
+        val manager = PinnedAppsManager(storage)
+        val visible = targetApps + listOf(extracted, remaining)
+        val items = manager.getPinnedGroups(visible)
+
+        assertTrue(manager.canGroup(items, 1, 0, extracting = true))
+        assertTrue(manager.extractAppToGroup(items, 1, 0, 0))
+
+        assertEquals(
+            listOf(targetApps.map { it.id } + extracted.id, listOf(hidden[0].id, hidden[1].id, remaining.id)),
+            storage.saved
+        )
+        assertTrue(storage.saved.all { it.size <= PinnedAppsManager.MAX_GROUP_SIZE })
+        assertEquals(listOf(hidden[0], hidden[1], remaining), manager.getPinnedGroups(visible + hidden)[1].apps)
+    }
+
+    @Test
+    fun extractingToAnEarlierNewRowLeavesHiddenMembersWithTheSource() {
+        val extracted = createApp("com.extracted", "Main", "Extracted")
+        val remaining = createApp("com.remaining", "Main", "Remaining")
+        val hidden = createApp("com.hidden", "Main", "Hidden", userSerial = 10L)
+        val storage = FakeStorage(listOf(listOf(hidden.id, extracted.id, remaining.id)))
+        val manager = PinnedAppsManager(storage)
+        val items = manager.getPinnedGroups(listOf(extracted, remaining))
+
+        assertTrue(manager.extractAppToPosition(items, 0, 0, 0))
+
+        assertEquals(listOf(listOf(extracted.id), listOf(hidden.id, remaining.id)), storage.saved)
     }
 }

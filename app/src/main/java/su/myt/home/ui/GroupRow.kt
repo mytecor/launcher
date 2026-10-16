@@ -5,7 +5,9 @@ package su.myt.home.ui
 import android.graphics.drawable.Drawable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -28,10 +30,10 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.zIndex
 import su.myt.home.model.App
@@ -57,20 +59,11 @@ internal fun GroupRow(
     onLaunch: (App) -> Unit,
     onLongClick: (() -> Unit)?,
     dragEnabled: Boolean,
-    onDragStart: (appIndex: Int, app: App, origin: Offset, width: Float, grab: Offset) -> Unit,
-    onDrag: (Offset) -> Unit,
-    onDragEnd: () -> Unit,
-    rowHeight: Dp = RowHeight
+    onDragStart: (appIndex: Int, app: App, origin: Offset, grabX: Float, pointerId: PointerId) -> Unit
 ) {
     val density = LocalDensity.current
 
-    var closingGapSlot by remember { mutableStateOf<Int?>(null) }
-    var previousAppsSize by remember { mutableStateOf(group.apps.size) }
-
-    if (group.apps.size != previousAppsSize) {
-        previousAppsSize = group.apps.size
-        closingGapSlot = null
-    }
+    var closingGapSlot by remember(group.apps.size) { mutableStateOf<Int?>(null) }
 
     if (insertSlot >= 0) {
         closingGapSlot = insertSlot
@@ -87,8 +80,7 @@ internal fun GroupRow(
     var rowOrigin by remember { mutableStateOf(Offset.Zero) }
     val holdDrag = dragEnabled || draggingAppIndex >= 0
     val latestStart = rememberUpdatedState(onDragStart)
-    val latestDrag = rememberUpdatedState(onDrag)
-    val latestEnd = rememberUpdatedState(onDragEnd)
+    val latestDragEnabled = rememberUpdatedState(dragEnabled)
     val latestApps = rememberUpdatedState(group.apps)
     val latestRowWidth = rememberUpdatedState(rowWidthPx)
     val latestSpacing = rememberUpdatedState(spacingPx)
@@ -100,40 +92,31 @@ internal fun GroupRow(
     Box(
         modifier
             .fillMaxWidth()
-            .height(rowHeight)
+            .height(RowHeight)
             .clipToBounds()
             .onGloballyPositioned { rowOrigin = it.positionInRoot() }
             .then(
                 if (holdDrag) {
                     Modifier.pointerInput(Unit) {
-                        detectDragGesturesAfterLongPress(
-                            onDragStart = { start ->
-                                val apps = latestApps.value
-                                val n = apps.size
-                                if (n == 0) return@detectDragGesturesAfterLongPress
-                                val w = slotWidthPx(latestRowWidth.value, n, latestSpacing.value)
-                                val stride = w + latestSpacing.value
-                                val idx = if (stride <= 0f) {
-                                    0
-                                } else {
-                                    (start.x / stride).toInt().coerceIn(0, n - 1)
-                                }
-                                val origin = latestOrigin.value
-                                latestStart.value(
-                                    idx,
-                                    apps[idx],
-                                    Offset(origin.x + idx * stride, origin.y),
-                                    w,
-                                    Offset(start.x - idx * stride, start.y)
-                                )
-                            },
-                            onDrag = { change, amount ->
-                                change.consume()
-                                latestDrag.value(amount)
-                            },
-                            onDragEnd = { latestEnd.value() },
-                            onDragCancel = {}
-                        )
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val press = awaitLongPressOrCancellation(down.id) ?: return@awaitEachGesture
+                            if (!latestDragEnabled.value) return@awaitEachGesture
+                            val apps = latestApps.value
+                            if (apps.isEmpty()) return@awaitEachGesture
+                            val width = slotWidthPx(latestRowWidth.value, apps.size, latestSpacing.value)
+                            val stride = width + latestSpacing.value
+                            val index = if (stride <= 0f) 0 else (press.position.x / stride).toInt().coerceIn(apps.indices)
+                            val origin = latestOrigin.value
+                            press.consume()
+                            latestStart.value(
+                                index,
+                                apps[index],
+                                Offset(origin.x + index * stride, origin.y),
+                                press.position.x - index * stride,
+                                press.id
+                            )
+                        }
                     }
                 } else Modifier
             )
@@ -188,8 +171,7 @@ internal fun GroupRow(
                                 PlaceholderSlot(
                                     modifier = Modifier.width(with(density) { widthPx.toDp() }),
                                     rowColor = rowColor,
-                                    alpha = 0.25f,
-                                    height = rowHeight
+                                    alpha = 0.25f
                                 )
                             } else {
                                 GroupAppSlot(

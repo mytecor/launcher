@@ -12,8 +12,15 @@ android {
         targetSdk = 35
         versionCode = 9
         versionName = "1.1.7"
-        providers.gradleProperty("releaseVersionCode").orNull?.toIntOrNull()?.let { versionCode = it }
-        providers.gradleProperty("releaseVersion").orNull?.let { versionName = it }
+        providers.gradleProperty("releaseVersionCode").orNull?.let { value ->
+            versionCode = requireNotNull(value.toIntOrNull()?.takeIf { it in 1..2_100_000_000 }) {
+                "releaseVersionCode must be an integer between 1 and 2100000000"
+            }
+        }
+        providers.gradleProperty("releaseVersion").orNull?.let { value ->
+            require(value.isNotBlank()) { "releaseVersion must not be blank" }
+            versionName = value
+        }
     }
     dependenciesInfo {
         includeInApk = false
@@ -63,4 +70,5 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.mockito:mockito-core:5.11.0")
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
+    testImplementation("org.json:json:20240303")
 }

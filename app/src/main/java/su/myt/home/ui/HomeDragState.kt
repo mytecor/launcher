@@ -1,8 +1,8 @@
 package su.myt.home.ui
 
-import android.util.Log
 import androidx.compose.animation.core.Animatable
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -11,19 +11,23 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.PointerId
+import androidx.compose.ui.input.pointer.PointerInputChange
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import su.myt.home.model.App
 import su.myt.home.model.AppGroup
-import su.myt.home.pinned.PinnedAppsManager
-import kotlin.math.abs
 
 @Stable
 internal class HomeDragState(
@@ -32,7 +36,7 @@ internal class HomeDragState(
     private val getItems: () -> List<AppGroup>,
     private val onMoveItem: (from: Int, to: Int) -> Boolean,
     private val onGroupItems: (from: Int, to: Int, slot: Int) -> Boolean,
-    private val onCanGroup: (from: Int, to: Int) -> Boolean,
+    private val onCanGroup: (from: Int, to: Int, extracting: Boolean) -> Boolean,
     private val onExtractToPosition: (group: Int, app: Int, target: Int) -> Unit,
     private val onExtractToGroup: (group: Int, app: Int, target: Int, slot: Int) -> Unit,
     private val onReorderInGroup: (group: Int, app: Int, slot: Int) -> Unit,
@@ -47,7 +51,6 @@ internal class HomeDragState(
     var insertRow by mutableIntStateOf(-1)
     var hoverCandidate by mutableIntStateOf(-1)
     var dwellEpoch by mutableIntStateOf(0)
-    var dwellAnchorY by mutableFloatStateOf(0f)
     var settling by mutableStateOf(false)
     var revealDrop by mutableStateOf(false)
     var settleCompact by mutableStateOf(false)
@@ -55,11 +58,16 @@ internal class HomeDragState(
     var floatY by mutableFloatStateOf(0f)
     var floatW by mutableFloatStateOf(0f)
     var floatElev by mutableFloatStateOf(6f)
-    val dragActive = mutableStateOf(false)
+    val dragActive: Boolean get() = drag != null
+    var pointerId: PointerId? = null
+        private set
     val rowBounds = mutableMapOf<Int, RowBounds>()
     var dragLayout by mutableStateOf<Map<Int, RowBounds>>(emptyMap())
     var gapBounds by mutableStateOf<RowBounds?>(null)
-    private var lastDragLog by mutableStateOf("")
+    private var settleJob: Job? = null
+    private var dragItems = emptyList<List<String>>()
+
+    private fun itemIds() = getItems().map { group -> group.apps.map { it.id } }
 
     private val horizontalPadPx: Float
         get() = with(density) { ListHorizontalPadding.toPx() }
@@ -75,8 +83,6 @@ internal class HomeDragState(
     fun hitRows(): Map<Int, RowBounds> = dragLayout.ifEmpty { rowBounds.toMap() }
 
     fun pointerRootX(overlay: DragOverlay): Float = overlay.x + overlay.grabX
-    fun pointerRootY(overlay: DragOverlay): Float = overlay.y + overlay.grabY
-
     fun remainingCount(groupIndex: Int, overlay: DragOverlay): Int {
         val items = getItems()
         val n = items.getOrNull(groupIndex)?.apps?.size ?: return 0
@@ -94,30 +100,23 @@ internal class HomeDragState(
     }
 
     fun canGroupAt(from: Int, extracting: Boolean, index: Int): Boolean {
-        val items = getItems()
-        return when {
-            index == from -> extracting
-            extracting -> {
-                val toSize = items.getOrNull(index)?.apps?.size
-                toSize != null && toSize < PinnedAppsManager.MAX_GROUP_SIZE
-            }
-            else -> onCanGroup(from, index)
-        }
+        return if (index == from) extracting else onCanGroup(from, index, extracting)
     }
 
     fun onDragStart(
         appIndex: Int,
         dragged: App,
         root: Offset,
-        width: Float,
-        grab: Offset,
-        isGroup: Boolean,
-        index: Int
+        grabX: Float,
+        index: Int,
+        pointerId: PointerId? = null
     ) {
-        dragActive.value = true
-        onDragActiveChange(true)
+        if (dragActive) return
+        val group = getItems().getOrNull(index) ?: return
+        if (group.apps.getOrNull(appIndex)?.id != dragged.id) return
+        val isGroup = group.isGroup
+        dragItems = itemIds()
         dragLayout = rowBounds.toMap()
-        dwellAnchorY = root.y
         dwellEpoch++
         hoverCandidate = if (isGroup) index else -1
         if (isGroup) {
@@ -129,9 +128,9 @@ internal class HomeDragState(
             hoverGroup = -1
             hoverSlot = appIndex
         }
-        drag = DragOverlay(
-            dragged, index, appIndex, root.x, root.y, width, root.x, root.y, grab.x, grab.y
-        )
+        this.pointerId = pointerId
+        drag = DragOverlay(dragged, index, appIndex, root.x, root.x, root.y, grabX)
+        onDragActiveChange(true)
     }
 
     fun onOverlayDrag(delta: Offset) {
@@ -141,21 +140,15 @@ internal class HomeDragState(
         drag = next
         val items = getItems()
         val extracting = items.getOrNull(current.from)?.isGroup == true
-        val frozen = hitRows()
-        val stride = rowStride(orderedTops(frozen), rowHeightPx, groupSpacingPx)
-        val packed = packedRowBounds(frozen, current.from, extracting, stride)
         val hit = dragHit(
             overlayTop = next.y,
-            packed = packed,
+            bounds = hitRows(),
             rowHeight = rowHeightPx,
-            currentGroup = if (hoverGroup >= 0) hoverGroup else hoverCandidate,
             canTarget = { canGroupAt(current.from, extracting, it) }
         )
         val candidate = hit.group
         if (candidate != hoverCandidate) {
             hoverCandidate = candidate ?: -1
-            dwellAnchorY = next.y
-            dwellEpoch++
         }
         val committedGroup = candidate != null && candidate == hoverGroup
         if (committedGroup) {
@@ -166,25 +159,31 @@ internal class HomeDragState(
             hoverGroup = -1
             insertRow = hit.insert
         }
-        val log = "y=${next.y.toInt()} from=${current.from} ext=$extracting cand=$candidate hover=$hoverGroup insert=$insertRow packed=" +
-            packed.entries.sortedBy { it.key }.joinToString { "${it.key}:${it.value.top.toInt()}" }
-        if (log != lastDragLog) {
-            lastDragLog = log
-            Log.d("HomeDrag", log)
+    }
+
+    fun onPointerChanges(changes: List<PointerInputChange>) {
+        if (!dragActive) return
+        val change = changes.firstOrNull { it.id == pointerId } ?: return
+        if (change.isConsumed) {
+            onDragCancel()
+            return
         }
+        val delta = change.positionChange()
+        if (delta != Offset.Zero) onOverlayDrag(delta)
+        if (!change.pressed) onOverlayDragEnd()
+        change.consume()
     }
 
     suspend fun processDwell() {
         val target = hoverCandidate
-        val overlay = drag
-        if (overlay == null || target < 0) return
+        val epoch = dwellEpoch
+        if (drag == null || settling || target < 0) return
         delay(GroupDwellMs)
-        if (hoverCandidate != target) return
+        if (hoverCandidate != target || dwellEpoch != epoch || settling) return
         val current = drag ?: return
         hoverGroup = target
         hoverSlot = insertSlotAt(target, pointerRootX(current), current)
         insertRow = -1
-        Log.d("HomeDrag", "dwell hover=$target insert=-1")
     }
 
     fun clampedX(x: Float, width: Float): Float {
@@ -207,11 +206,9 @@ internal class HomeDragState(
         val items = getItems()
         val extracting = items.getOrNull(overlay.from)?.isGroup == true
         val frozen = hitRows()
-        val stride = rowStride(orderedTops(frozen), rowHeightPx, groupSpacingPx)
-        val packed = packedRowBounds(frozen, overlay.from, extracting, stride)
-        val tops = orderedTops(packed)
+        val stride = rowStride(frozen, rowHeightPx, groupSpacingPx)
         if (hoverGroup >= 0) {
-            val y = rowBounds[hoverGroup]?.top ?: packed[hoverGroup]?.top ?: overlay.y
+            val y = rowBounds[hoverGroup]?.top ?: frozen[hoverGroup]?.top ?: overlay.y
             val n = items.getOrNull(hoverGroup)?.apps?.size ?: 1
             val count = if (overlay.from == hoverGroup) n else n + 1
             val width = slotWidthPx(rowWidth, count.coerceAtLeast(1), groupSpacingPx)
@@ -222,14 +219,17 @@ internal class HomeDragState(
         }
         val dest = moveDestination(overlay.from, insertRow, items.size)
         val y = if (!extracting) {
-            tops.getOrNull(dest) ?: rowBounds[overlay.from]?.top ?: overlay.y
+            rowTopAt(dest, frozen, stride) ?: overlay.y
         } else {
-            gapBounds?.top ?: gapTop(insertRow, tops, extracting = true, stride) ?: overlay.y
+            val slot = extractDestination(insertRow, overlay.from, items.size)
+            gapBounds?.top ?: rowTopAt(slot - 1, frozen, stride) ?: overlay.y
         }
         return Triple(rowLeft, y, rowWidth)
     }
 
     private fun commitDrop(current: DragOverlay, hover: Int, rowSlot: Int, slot: Int) {
+        // The query or installed apps can change while the overlay is settling.
+        if (itemIds() != dragItems) return
         val items = getItems()
         val extracting = items.getOrNull(current.from)?.isGroup == true
         if (hover >= 0) {
@@ -259,9 +259,12 @@ internal class HomeDragState(
     fun onOverlayDragEnd() {
         val current = drag ?: return
         if (settling) return
+        if (!scope.isActive) {
+            onDragCancel()
+            return
+        }
         val hover = hoverGroup
         val rowSlot = insertRow
-        val extracting = getItems().getOrNull(current.from)?.isGroup == true
         val slot = if (hover >= 0) {
             hoverSlot
         } else {
@@ -278,40 +281,54 @@ internal class HomeDragState(
         settleCompact = visual.inGroup
         val (toX, toY, toW) = dropTarget(current)
         settling = true
-        scope.launch {
+        hoverCandidate = -1
+        val job = scope.launch {
             val xA = Animatable(fromX)
             val yA = Animatable(fromY)
             val wA = Animatable(fromW)
             val eA = Animatable(6f)
-            var committed = false
-            try {
-                coroutineScope {
-                    launch { xA.animateTo(toX, SlotSpring) { floatX = value } }
-                    launch { yA.animateTo(toY, SlotSpring) { floatY = value } }
-                    launch { wA.animateTo(toW, SlotSpring) { floatW = value } }
-                    launch { eA.animateTo(0f, SlotSpring) { floatElev = value } }
-                }
-                commitDrop(current, hover, rowSlot, slot)
-                committed = true
-                // Render the real destination beneath the overlay before removing it.
-                revealDrop = true
-                hoverGroup = -1
-                insertRow = -1
-                withFrameNanos { }
-                withFrameNanos { }
-            } finally {
-                if (!committed) commitDrop(current, hover, rowSlot, slot)
-                settling = false
-                revealDrop = false
-                drag = null
-                hoverGroup = -1
-                insertRow = -1
-                hoverCandidate = -1
-                dragLayout = emptyMap()
-                dragActive.value = false
-                onDragActiveChange(false)
+            coroutineScope {
+                launch { xA.animateTo(toX, SlotSpring) { floatX = value } }
+                launch { yA.animateTo(toY, SlotSpring) { floatY = value } }
+                launch { wA.animateTo(toW, SlotSpring) { floatW = value } }
+                launch { eA.animateTo(0f, SlotSpring) { floatElev = value } }
             }
+            commitDrop(current, hover, rowSlot, slot)
+            // Render the real destination beneath the overlay before removing it.
+            revealDrop = true
+            hoverGroup = -1
+            insertRow = -1
+            withFrameNanos { }
+            withFrameNanos { }
         }
+        settleJob = job
+        job.invokeOnCompletion {
+            if (drag === current) resetDrag()
+        }
+    }
+
+    fun onDragCancel() {
+        settleJob?.cancel()
+        resetDrag()
+    }
+
+    private fun resetDrag() {
+        val wasActive = dragActive
+        settleJob = null
+        pointerId = null
+        settling = false
+        revealDrop = false
+        settleCompact = false
+        drag = null
+        hoverGroup = -1
+        hoverSlot = 0
+        insertRow = -1
+        hoverCandidate = -1
+        dragLayout = emptyMap()
+        dragItems = emptyList()
+        gapBounds = null
+        floatW = 0f
+        if (wasActive) onDragActiveChange(false)
     }
 
     fun isOverItem(pointerY: Float): Boolean {
@@ -324,7 +341,7 @@ internal fun rememberHomeDragState(
     items: List<AppGroup>,
     onMoveItem: (from: Int, to: Int) -> Boolean,
     onGroupItems: (from: Int, to: Int, slot: Int) -> Boolean,
-    onCanGroup: (from: Int, to: Int) -> Boolean,
+    onCanGroup: (from: Int, to: Int, extracting: Boolean) -> Boolean,
     onExtractToPosition: (group: Int, app: Int, target: Int) -> Unit,
     onExtractToGroup: (group: Int, app: Int, target: Int, slot: Int) -> Unit,
     onReorderInGroup: (group: Int, app: Int, slot: Int) -> Unit,
@@ -333,23 +350,23 @@ internal fun rememberHomeDragState(
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
 
-    val currentItems = androidx.compose.runtime.rememberUpdatedState(items)
-    val currentMoveItem = androidx.compose.runtime.rememberUpdatedState(onMoveItem)
-    val currentGroupItems = androidx.compose.runtime.rememberUpdatedState(onGroupItems)
-    val currentCanGroup = androidx.compose.runtime.rememberUpdatedState(onCanGroup)
-    val currentExtractToPos = androidx.compose.runtime.rememberUpdatedState(onExtractToPosition)
-    val currentExtractToGroup = androidx.compose.runtime.rememberUpdatedState(onExtractToGroup)
-    val currentReorderInGroup = androidx.compose.runtime.rememberUpdatedState(onReorderInGroup)
-    val currentDragActiveChange = androidx.compose.runtime.rememberUpdatedState(onDragActiveChange)
+    val currentItems = rememberUpdatedState(items)
+    val currentMoveItem = rememberUpdatedState(onMoveItem)
+    val currentGroupItems = rememberUpdatedState(onGroupItems)
+    val currentCanGroup = rememberUpdatedState(onCanGroup)
+    val currentExtractToPos = rememberUpdatedState(onExtractToPosition)
+    val currentExtractToGroup = rememberUpdatedState(onExtractToGroup)
+    val currentReorderInGroup = rememberUpdatedState(onReorderInGroup)
+    val currentDragActiveChange = rememberUpdatedState(onDragActiveChange)
 
-    val state = remember {
+    val state = remember(density) {
         HomeDragState(
             density = density,
             scope = scope,
             getItems = { currentItems.value },
             onMoveItem = { from, to -> currentMoveItem.value(from, to) },
             onGroupItems = { from, to, slot -> currentGroupItems.value(from, to, slot) },
-            onCanGroup = { from, to -> currentCanGroup.value(from, to) },
+            onCanGroup = { from, to, extracting -> currentCanGroup.value(from, to, extracting) },
             onExtractToPosition = { g, a, t -> currentExtractToPos.value(g, a, t) },
             onExtractToGroup = { g, a, t, s -> currentExtractToGroup.value(g, a, t, s) },
             onReorderInGroup = { g, a, s -> currentReorderInGroup.value(g, a, s) },
@@ -357,8 +374,12 @@ internal fun rememberHomeDragState(
         )
     }
 
-    LaunchedEffect(state.hoverCandidate, state.dwellEpoch, state.drag != null) {
+    LaunchedEffect(state, state.hoverCandidate, state.dwellEpoch, state.drag != null) {
         state.processDwell()
+    }
+
+    DisposableEffect(state) {
+        onDispose { state.onDragCancel() }
     }
 
     return state

@@ -1,0 +1,7 @@
+Version 1.1.7:
+• Modern launcher UI rewrite built with Jetpack Compose
+• Pinned app groups with animated drag-to-merge and slot reordering
+• Swipe-down gesture on pinned apps to open notification shade
+• Improved multi-profile support with isolated app launching and state preservation
+• High-performance asynchronous icon caching with LRU memory eviction
+• Refined drag-and-drop animations, hit testing, and smooth transitions

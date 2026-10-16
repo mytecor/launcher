@@ -14,21 +14,19 @@ import java.io.File
 import java.io.FileOutputStream
 
 class AppCache(
-    private val context: Context,
+    context: Context,
     private val cacheDir: File = File(context.filesDir, "app_cache"),
     private val iconCache: IconCache = IconCache(context, File(cacheDir, "icons"))
 ) {
+    private val context = context.applicationContext ?: context
     private val appsJsonFile = File(cacheDir, "apps.json")
     private val appsAtomicFile = AtomicFile(appsJsonFile)
 
-    @Volatile
     private var memoryApps: List<App>? = null
 
-    fun hasCache(): Boolean = appsJsonFile.exists() && appsJsonFile.length() > 0L
-
+    @Synchronized
     fun loadApps(): List<App> {
         memoryApps?.let { return it }
-        if (!hasCache()) return emptyList()
 
         return try {
             val bytes = appsAtomicFile.readFully()
@@ -37,39 +35,37 @@ class AppCache(
             val array = JSONArray(jsonStr)
             val userManager = context.getSystemService(UserManager::class.java)
             val defaultUser = Process.myUserHandle()
-            val userMap = mutableMapOf<Long, UserHandle>()
+            val userMap = mutableMapOf<Long, UserHandle?>()
             val result = mutableListOf<App>()
 
             for (i in 0 until array.length()) {
-                val obj = array.getJSONObject(i)
+                val obj = array.optJSONObject(i) ?: continue
                 val componentStr = obj.optString("component")
                 val component = ComponentName.unflattenFromString(componentStr) ?: continue
                 val label = obj.optString("label", "")
                 val badgedLabel = obj.optString("badgedLabel", label)
                 val userSerial = obj.optLong("userSerial", 0L)
+                if (userSerial < 0L) continue
                 val user = if (userSerial == 0L) {
                     defaultUser
                 } else {
-                    userMap.getOrPut(userSerial) {
-                        try {
-                            userManager?.getUserForSerialNumber(userSerial) ?: defaultUser
+                    if (!userMap.containsKey(userSerial)) {
+                        userMap[userSerial] = try {
+                            userManager?.getUserForSerialNumber(userSerial)
                         } catch (_: Exception) {
-                            defaultUser
+                            null
                         }
                     }
+                    userMap[userSerial] ?: continue
                 }
-                val appId = if (userSerial != 0L) "$userSerial:${component.flattenToString()}" else component.flattenToString()
-                val cachedIcon = iconCache.getMemoryIcon(appId)
-                result.add(
-                    App(
-                        label = label,
-                        badgedLabel = badgedLabel,
-                        component = component,
-                        user = user,
-                        userSerial = userSerial,
-                        icon = cachedIcon
-                    )
+                val app = App(
+                    label = label,
+                    badgedLabel = badgedLabel,
+                    component = component,
+                    user = user,
+                    userSerial = userSerial
                 )
+                result.add(app.copy(icon = iconCache.getMemoryIcon(app.id)))
             }
             memoryApps = result
             result
@@ -78,16 +74,13 @@ class AppCache(
         }
     }
 
-    fun getMemoryIcon(app: App): Drawable? = iconCache.getMemoryIcon(app.id)
-
     fun loadIcon(app: App, onLoaded: (Drawable) -> Unit): Drawable? = iconCache.loadIcon(app, onLoaded)
 
+    @Synchronized
     fun saveApps(apps: List<App>) {
-        if (apps.isEmpty()) return
-        memoryApps = apps
+        memoryApps = apps.toList()
         try {
             if (!cacheDir.exists()) cacheDir.mkdirs()
-            iconCache.ensureIconsDirectory()
 
             val array = JSONArray()
             val activeIconNames = mutableSetOf<String>()
@@ -96,28 +89,21 @@ class AppCache(
                 val iconName = iconCache.getIconFileName(app)
                 activeIconNames.add(iconName)
 
-                if (app.icon != null) {
-                    iconCache.putMemoryIcon(app.id, app.icon)
-                    iconCache.saveIconToDisk(app, app.icon)
-                }
-
                 val obj = JSONObject().apply {
                     put("label", app.label)
                     put("badgedLabel", app.badgedLabel)
                     put("component", app.component.flattenToString())
                     put("userSerial", app.userSerial)
-                    put("icon", iconName)
                 }
                 array.put(obj)
             }
-
-            iconCache.cleanupUnusedIcons(activeIconNames)
 
             var fos: FileOutputStream? = null
             try {
                 fos = appsAtomicFile.startWrite()
                 fos.write(array.toString().toByteArray(Charsets.UTF_8))
                 appsAtomicFile.finishWrite(fos)
+                iconCache.cleanupUnusedIcons(activeIconNames)
             } catch (e: Exception) {
                 if (fos != null) {
                     appsAtomicFile.failWrite(fos)
@@ -126,6 +112,7 @@ class AppCache(
         } catch (_: Exception) {}
     }
 
+    @Synchronized
     fun invalidatePackage(packageName: String) {
         iconCache.invalidatePackage(packageName)
         memoryApps = null
