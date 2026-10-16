@@ -1,9 +1,11 @@
-Home is a fast, minimalist Android launcher designed for focus and privacy.
+Home is a fast, minimalist Android launcher built with Jetpack Compose, designed for focus and privacy.
 
 Features:
-• Minimalist UI: Shows pinned apps when the query is empty; search bar is placed directly above your keyboard.
+• Minimalist Compose UI: Edge-to-edge layout where pinned apps smoothly scroll under the status bar and behind the search bar docked directly above your keyboard.
 • Fuzzy Search: Tolerates typos and partial queries; press Enter to instantly launch the top match.
-• Pinned Apps: Long-press any app in search to pin or unpin; drag-and-drop your favorites to reorder.
-• Work Profile Support: Seamless multi-profile support with badging and independent pinning per profile.
+• Pinned Apps & Groups: Long-press in search to pin/unpin. Drag-and-drop favorites to reorder, merge up to 4 apps into a grouped row, or extract an app from a group with smooth physics-based spring animations.
+• Notification Shade Gesture: Swipe down anywhere over the pinned apps area to quickly pull down the system notification shade.
+• Resilient Work Profile Support: Seamless multi-profile support with work badges and isolated launching. Pinned apps from locked or paused profiles are safely preserved rather than discarded.
+• Instant Launch & Smart Caching: Asynchronous app discovery with multi-tier on-demand icon caching (memory LRU and disk cache) to eliminate startup stutter and prevent icon pop-in.
 • Material You: Dynamic colors adapting to your wallpaper on Android 12+, with full light and dark theme support.
 • Privacy-First: No internet access permission, no ads, no trackers, and no QUERY_ALL_PACKAGES permission.
