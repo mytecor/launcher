@@ -10,8 +10,8 @@ android {
         applicationId = "su.myt.home"
         minSdk = 30
         targetSdk = 35
-        versionCode = 9
-        versionName = "1.1.7"
+        versionCode = 10
+        versionName = "2.0.0"
         providers.gradleProperty("releaseVersionCode").orNull?.let { value ->
             versionCode = requireNotNull(value.toIntOrNull()?.takeIf { it in 1..2_100_000_000 }) {
                 "releaseVersionCode must be an integer between 1 and 2100000000"
