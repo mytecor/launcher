@@ -7,5 +7,5 @@ data class AppGroup(
         get() = apps.size > 1
 
     val id: String
-        get() = apps.joinToString(";") { it.id }
+        get() = apps.map { it.id }.sorted().joinToString(";")
 }

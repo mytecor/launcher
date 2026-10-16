@@ -31,6 +31,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.zIndex
 import su.myt.home.model.App
@@ -58,12 +59,30 @@ internal fun GroupRow(
     dragEnabled: Boolean,
     onDragStart: (appIndex: Int, app: App, origin: Offset, width: Float, grab: Offset) -> Unit,
     onDrag: (Offset) -> Unit,
-    onDragEnd: () -> Unit
+    onDragEnd: () -> Unit,
+    rowHeight: Dp = RowHeight
 ) {
     val density = LocalDensity.current
-    val visuals = groupVisuals(group.apps, draggingAppIndex, insertSlot)
-    val targetWidth = slotWidthPx(rowWidthPx, visuals.size.coerceAtLeast(1), spacingPx)
-    val compact = visuals.size > 1
+
+    var closingGapSlot by remember { mutableStateOf<Int?>(null) }
+    var previousAppsSize by remember { mutableStateOf(group.apps.size) }
+
+    if (group.apps.size != previousAppsSize) {
+        previousAppsSize = group.apps.size
+        closingGapSlot = null
+    }
+
+    if (insertSlot >= 0) {
+        closingGapSlot = insertSlot
+    }
+
+    val isClosing = insertSlot < 0 && !grouping && closingGapSlot != null
+    val activeSlot = if (insertSlot >= 0) insertSlot else closingGapSlot
+    val visuals = groupVisuals(group.apps, draggingAppIndex, activeSlot ?: -1)
+
+    val slotCount = if (isClosing) visuals.count { it is GroupVisual.Item } else visuals.size
+    val targetWidth = slotWidthPx(rowWidthPx, slotCount.coerceAtLeast(1), spacingPx)
+    val compact = slotCount > 1
     val growFromFull = grouping && group.apps.size == 1 && draggingAppIndex < 0
     var rowOrigin by remember { mutableStateOf(Offset.Zero) }
     val holdDrag = dragEnabled || draggingAppIndex >= 0
@@ -81,7 +100,7 @@ internal fun GroupRow(
     Box(
         modifier
             .fillMaxWidth()
-            .height(RowHeight)
+            .height(rowHeight)
             .clipToBounds()
             .onGloballyPositioned { rowOrigin = it.positionInRoot() }
             .then(
@@ -119,9 +138,20 @@ internal fun GroupRow(
                 } else Modifier
             )
     ) {
+        val nonGapVisuals = visuals.filter { it !is GroupVisual.Gap }
         visuals.forEachIndexed { index, visual ->
             val id = visual.slotKey()
-            val x = index * (targetWidth + spacingPx)
+            val slotTargetWidth = if (visual is GroupVisual.Gap && isClosing) 0f else targetWidth
+            val x = if (isClosing) {
+                if (visual is GroupVisual.Gap) {
+                    if (index >= nonGapVisuals.size) rowWidthPx else index * (targetWidth + spacingPx)
+                } else {
+                    val nonGapIndex = nonGapVisuals.indexOf(visual).coerceAtLeast(0)
+                    nonGapIndex * (targetWidth + spacingPx)
+                }
+            } else {
+                index * (targetWidth + spacingPx)
+            }
             val initialWidth = when {
                 visual is GroupVisual.Gap -> 0f
                 growFromFull -> rowWidthPx
@@ -133,22 +163,33 @@ internal fun GroupRow(
                 AnimatedSlot(
                     anim = anim,
                     targetX = x,
-                    targetWidth = targetWidth,
+                    targetWidth = slotTargetWidth,
                     zIndex = if (visual is GroupVisual.Gap) 0f else 1f,
-                    isItem = visual is GroupVisual.Item
+                    isItem = visual is GroupVisual.Item,
+                    onCollapseComplete = {
+                        if (visual is GroupVisual.Gap && isClosing) {
+                            closingGapSlot = null
+                        }
+                    }
                 ) { widthPx ->
                     when (visual) {
-                        is GroupVisual.Gap -> PlaceholderSlot(
-                            Modifier.width(with(density) { widthPx.toDp() }),
-                            rowColor
-                        )
+                        is GroupVisual.Gap -> {
+                            val fullW = slotWidthPx(rowWidthPx, visuals.size.coerceAtLeast(1), spacingPx)
+                            val alphaFraction = if (fullW > 0f) (widthPx / fullW).coerceIn(0f, 1f) else 1f
+                            PlaceholderSlot(
+                                modifier = Modifier.width(with(density) { widthPx.toDp() }),
+                                rowColor = rowColor,
+                                alpha = 0.35f * alphaFraction
+                            )
+                        }
                         is GroupVisual.Item -> {
                             val isDragging = visual.appIndex == draggingAppIndex
                             if (isDragging) {
-                                Box(
-                                    Modifier
-                                        .width(with(density) { widthPx.toDp() })
-                                        .height(RowHeight)
+                                PlaceholderSlot(
+                                    modifier = Modifier.width(with(density) { widthPx.toDp() }),
+                                    rowColor = rowColor,
+                                    alpha = 0.25f,
+                                    height = rowHeight
                                 )
                             } else {
                                 GroupAppSlot(
@@ -179,8 +220,10 @@ internal fun AnimatedSlot(
     targetWidth: Float,
     zIndex: Float,
     isItem: Boolean,
+    onCollapseComplete: (() -> Unit)? = null,
     content: @Composable (widthPx: Float) -> Unit
 ) {
+    val latestCollapse = rememberUpdatedState(onCollapseComplete)
     LaunchedEffect(targetX, targetWidth) {
         if (isItem && anim.width.value <= 0f) {
             anim.x.snapTo(targetX)
@@ -191,7 +234,14 @@ internal fun AnimatedSlot(
                     launch { anim.x.animateTo(targetX, SlotSpring) }
                 }
                 if (anim.width.value != targetWidth) {
-                    launch { anim.width.animateTo(targetWidth, SlotSpring) }
+                    launch {
+                        anim.width.animateTo(targetWidth, SlotSpring)
+                        if (targetWidth <= 0f) {
+                            latestCollapse.value?.invoke()
+                        }
+                    }
+                } else if (targetWidth <= 0f) {
+                    latestCollapse.value?.invoke()
                 }
             }
         }
@@ -235,11 +285,7 @@ internal fun GroupAppSlot(
                 ),
             contentAlignment = if (compact) Alignment.Center else Alignment.CenterStart
         ) {
-            if (compact) {
-                AppIcon(app, loadIcon)
-            } else {
-                AppRowContent(app, showStar, foreground, accent, loadIcon)
-            }
+            AppRowContent(app, showStar, foreground, accent, loadIcon, compact = compact)
         }
     }
 }

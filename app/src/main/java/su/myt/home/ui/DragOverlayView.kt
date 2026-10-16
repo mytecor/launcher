@@ -1,6 +1,7 @@
 package su.myt.home.ui
 
 import android.graphics.drawable.Drawable
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -12,8 +13,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -71,18 +74,34 @@ internal fun DragFloatingOverlay(
     val density = LocalDensity.current
     val visual = dragState.dragVisual(overlay)
     val animatedWidth by animateFloatAsState(visual.width, SlotSpring, label = "dragW")
-    val liveX = dragState.clampedX(dragState.pointerRootX(overlay) - animatedWidth / 2f, animatedWidth)
+
+    val centeredTargetX = dragState.clampedX(dragState.pointerRootX(overlay) - animatedWidth / 2f, animatedWidth)
+
+    val initialOffsetX = remember(overlay.from, overlay.appIndex) { overlay.originX - centeredTargetX }
+
+    val pickupOffsetX = remember(overlay.from, overlay.appIndex) { Animatable(initialOffsetX) }
+    val pickupElev = remember(overlay.from, overlay.appIndex) { Animatable(0f) }
+
+    LaunchedEffect(overlay.from, overlay.appIndex) {
+        pickupOffsetX.animateTo(0f, SlotSpring)
+    }
+    LaunchedEffect(overlay.from, overlay.appIndex) {
+        pickupElev.animateTo(6f, SlotSpring)
+    }
+
+    val liveX = dragState.clampedX(centeredTargetX + pickupOffsetX.value, animatedWidth)
     val liveY = overlay.y
     val drawX = if (dragState.settling) dragState.floatX else liveX
     val drawY = if (dragState.settling) dragState.floatY else liveY
     val drawW = if (dragState.settling) dragState.floatW else animatedWidth
+    val drawElev = if (dragState.settling) dragState.floatElev else pickupElev.value
 
     SideEffect {
         if (!dragState.settling) {
             dragState.floatX = liveX
             dragState.floatY = liveY
             dragState.floatW = animatedWidth
-            dragState.floatElev = 6f
+            dragState.floatElev = drawElev
         }
     }
 
@@ -99,7 +118,7 @@ internal fun DragFloatingOverlay(
             .height(RowHeight),
         shape = RowShape,
         color = rowColor,
-        shadowElevation = (if (dragState.settling) dragState.floatElev else 6f).dp
+        shadowElevation = drawElev.dp
     ) {
         DragOverlayContent(
             app = overlay.app,

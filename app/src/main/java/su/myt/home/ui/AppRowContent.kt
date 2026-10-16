@@ -1,6 +1,12 @@
 package su.myt.home.ui
 
 import android.graphics.drawable.Drawable
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,7 +38,8 @@ internal fun AppRowContent(
     showStar: Boolean,
     foreground: Color,
     accent: Color,
-    loadIcon: (App, (Drawable) -> Unit) -> Drawable?
+    loadIcon: (App, (Drawable) -> Unit) -> Drawable?,
+    compact: Boolean = false
 ) {
     val description = if (showStar) {
         stringResource(R.string.pinned_description, app.badgedLabel)
@@ -42,22 +49,29 @@ internal fun AppRowContent(
     Row(
         Modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = if (compact) 0.dp else 16.dp)
             .semantics { contentDescription = description },
+        horizontalArrangement = if (compact) Arrangement.Center else Arrangement.Start,
         verticalAlignment = Alignment.CenterVertically
     ) {
         AppIcon(app, loadIcon)
-        Text(
-            text = app.label,
-            modifier = Modifier
-                .weight(1f)
-                .padding(horizontal = 12.dp),
-            color = foreground,
-            fontSize = 19.sp,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
-        if (showStar) {
+        if (!compact) {
+            Text(
+                text = app.label,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 12.dp),
+                color = foreground,
+                fontSize = 19.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        AnimatedVisibility(
+            visible = showStar && !compact,
+            enter = fadeIn(UiFadeSpec) + scaleIn(UiScaleSpring, initialScale = 0.4f),
+            exit = fadeOut(UiFadeSpec) + scaleOut(UiFadeSpec, targetScale = 0.4f)
+        ) {
             Box(
                 modifier = Modifier.size(StarSlotSize),
                 contentAlignment = Alignment.Center

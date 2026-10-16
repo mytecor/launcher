@@ -5,7 +5,7 @@ package su.myt.home.ui
 import android.graphics.drawable.Drawable
 import android.view.HapticFeedbackConstants
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,10 +15,12 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.material3.Surface
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -26,8 +28,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -73,10 +78,21 @@ fun HomeScreen(
     val view = LocalView.current
     val listState = rememberLazyListState()
 
+    var collapsingRow by remember(query) { mutableStateOf<Pair<Int, String>?>(null) }
+    val wrappedOnGroupItems: (Int, Int, Int) -> Boolean = { from, to, slot ->
+        val fromGroup = items.getOrNull(from)
+        val originId = fromGroup?.takeUnless { it.isGroup }?.id
+        val grouped = onGroupItems(from, to, slot)
+        if (grouped && originId != null) {
+            collapsingRow = Pair(from, originId)
+        }
+        grouped
+    }
+
     val dragState = rememberHomeDragState(
         items = items,
         onMoveItem = onMoveItem,
-        onGroupItems = onGroupItems,
+        onGroupItems = wrappedOnGroupItems,
         onCanGroup = onCanGroup,
         onExtractToPosition = onExtractToPosition,
         onExtractToGroup = onExtractToGroup,
@@ -190,6 +206,27 @@ fun HomeScreen(
                         dragState.listWidth = measuredListWidth
                     }
                 }
+                val extracting = items.getOrNull(dragState.drag?.from ?: -1)?.isGroup == true
+                var closingInsertGapRow by remember(isSearching, dragState.drag != null, dragState.revealDrop) { mutableStateOf<Int?>(null) }
+                val rawInsertRow = when {
+                    dragState.revealDrop -> -1
+                    dragState.hoverGroup >= 0 -> -1
+                    else -> dragState.insertRow
+                }
+                if (rawInsertRow >= 0 && extracting) {
+                    closingInsertGapRow = rawInsertRow
+                }
+                val isClosingGap = rawInsertRow < 0 && closingInsertGapRow != null
+                val effectiveInsertRow = if (rawInsertRow >= 0) rawInsertRow else (closingInsertGapRow ?: -1)
+
+                val visuals = pinnedVisuals(
+                    count = items.size,
+                    draggingFrom = if (dragState.revealDrop) -1 else (dragState.drag?.from ?: -1),
+                    extracting = (extracting || isClosingGap) && !dragState.revealDrop,
+                    insertRow = effectiveInsertRow,
+                    collapsingRow = collapsingRow
+                )
+
                 LazyColumn(
                     state = listState,
                     reverseLayout = true,
@@ -209,33 +246,13 @@ fun HomeScreen(
                     ),
                     verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)
                 ) {
-                    val extracting = items.getOrNull(dragState.drag?.from ?: -1)?.isGroup == true
-                    val visuals = pinnedVisuals(
-                        count = items.size,
-                        draggingFrom = if (dragState.revealDrop) -1 else (dragState.drag?.from ?: -1),
-                        extracting = extracting && !dragState.revealDrop,
-                        insertRow = when {
-                            dragState.revealDrop -> -1
-                            dragState.hoverGroup >= 0 -> -1
-                            else -> dragState.insertRow
-                        }
-                    )
                     itemsIndexed(
                         visuals.asReversed(),
                         key = { _, visual ->
                             when (visual) {
                                 PinnedVisual.Gap -> "insert-gap"
-                                is PinnedVisual.Group -> {
-                                    val isOriginEmpty = !dragState.revealDrop &&
-                                        dragState.drag?.from == visual.index &&
-                                        items.getOrNull(visual.index)?.apps?.size == 1
-                                    if (isOriginEmpty) {
-                                        "drag-origin-placeholder"
-                                    } else {
-                                        items.getOrNull(visual.index)?.apps?.map { it.id }?.sorted()?.joinToString(";")
-                                            ?: "empty-${visual.index}"
-                                    }
-                                }
+                                is PinnedVisual.CollapsingRow -> "collapsing-${visual.id}"
+                                is PinnedVisual.Group -> items.getOrNull(visual.index)?.id ?: "empty-${visual.index}"
                             }
                         }
                     ) { _, visual ->
@@ -246,18 +263,38 @@ fun HomeScreen(
                                 }
                                 AnimatedInsertGap(
                                     modifier = Modifier
-                                        .animateItem(
-                                            fadeInSpec = snap(),
-                                            fadeOutSpec = snap(),
-                                            placementSpec = ItemPlacementSpring
-                                        )
                                         .onGloballyPositioned {
-                                            val pos = it.positionInRoot()
-                                            dragState.gapBounds = RowBounds(pos.y, it.size.height.toFloat())
+                                            if (!isClosingGap) {
+                                                val pos = it.positionInRoot()
+                                                dragState.gapBounds = RowBounds(pos.y, it.size.height.toFloat())
+                                            }
                                         },
                                     rowColor = rowColor,
-                                    expandFromZero = false
+                                    isClosing = isClosingGap,
+                                    onCollapseComplete = {
+                                        closingInsertGapRow = null
+                                    }
                                 )
+                            }
+                            is PinnedVisual.CollapsingRow -> {
+                                val heightAnim = remember(visual.id) {
+                                    Animatable(with(density) { RowHeight.toPx() })
+                                }
+                                LaunchedEffect(visual.id) {
+                                    heightAnim.animateTo(0f, SlotSpring)
+                                    if (collapsingRow?.second == visual.id) {
+                                        collapsingRow = null
+                                    }
+                                }
+                                val currentHeight = with(density) { heightAnim.value.toDp() }
+                                val progress = (heightAnim.value / with(density) { RowHeight.toPx() }).coerceIn(0f, 1f)
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(currentHeight),
+                                    shape = RowShape,
+                                    color = rowColor.copy(alpha = 0.25f * progress)
+                                ) {}
                             }
                             is PinnedVisual.Group -> {
                                 val index = visual.index
@@ -267,8 +304,8 @@ fun HomeScreen(
                                     onDispose { dragState.rowBounds.remove(index) }
                                 }
                                 val placement = Modifier.animateItem(
-                                    fadeInSpec = snap(),
-                                    fadeOutSpec = snap(),
+                                    fadeInSpec = null,
+                                    fadeOutSpec = null,
                                     placementSpec = ItemPlacementSpring
                                 )
                                 val trackBounds = Modifier.onGloballyPositioned {
@@ -276,16 +313,18 @@ fun HomeScreen(
                                     dragState.rowBounds[index] = RowBounds(pos.y, it.size.height.toFloat())
                                 }
                                 val app = group.apps.firstOrNull()
+                                val draggedAppId = if (dragState.revealDrop) null else dragState.drag?.app?.id
+                                val draggingAppIndex = if (draggedAppId != null) {
+                                    group.apps.indexOfFirst { it.id == draggedAppId }
+                                } else {
+                                    -1
+                                }
                                 GroupRow(
                                     group = group,
                                     modifier = placement.then(trackBounds),
                                     grouping = grouping && !dragState.revealDrop,
                                     insertSlot = if (grouping && !dragState.revealDrop) dragState.hoverSlot else -1,
-                                    draggingAppIndex = if (!dragState.revealDrop && dragState.drag?.from == index) {
-                                        dragState.drag?.appIndex ?: -1
-                                    } else {
-                                        -1
-                                    },
+                                    draggingAppIndex = draggingAppIndex,
                                     rowWidthPx = rowWidthPx,
                                     spacingPx = dragState.groupSpacingPx,
                                     rowColor = rowColor,

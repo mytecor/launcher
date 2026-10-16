@@ -8,6 +8,7 @@ internal data class DragOverlay(
     val from: Int,
     val appIndex: Int,
     val originX: Float,
+    val originY: Float,
     val originWidth: Float,
     val x: Float,
     val y: Float,
@@ -61,35 +62,50 @@ internal fun groupVisuals(
 internal sealed class PinnedVisual {
     data class Group(val index: Int) : PinnedVisual()
     data object Gap : PinnedVisual()
+    data class CollapsingRow(val id: String) : PinnedVisual()
 }
 
 internal fun pinnedVisuals(
     count: Int,
     draggingFrom: Int,
     extracting: Boolean,
-    insertRow: Int
+    insertRow: Int,
+    collapsingRow: Pair<Int, String>? = null
 ): List<PinnedVisual> {
-    if (count <= 0) return emptyList()
-    if (extracting) {
+    if (count <= 0 && collapsingRow == null) return emptyList()
+    val baseVisuals: List<PinnedVisual> = if (extracting) {
         val rows = (0 until count).toList()
         val gapAt = if (insertRow >= 0) insertRow.coerceIn(0, rows.size) else -1
-        return buildList {
+        buildList {
             rows.forEachIndexed { i, idx ->
                 if (i == gapAt) add(PinnedVisual.Gap)
                 add(PinnedVisual.Group(idx))
             }
             if (gapAt == rows.size) add(PinnedVisual.Gap)
         }
-    }
-    val rows = (0 until count).toMutableList()
-    if (draggingFrom in rows.indices && insertRow >= 0) {
-        val dest = moveDestination(draggingFrom, insertRow, count)
-        if (dest != draggingFrom) {
-            rows.removeAt(draggingFrom)
-            rows.add(dest, draggingFrom)
+    } else {
+        val rows = (0 until count).toMutableList()
+        if (draggingFrom in rows.indices && insertRow >= 0) {
+            val dest = moveDestination(draggingFrom, insertRow, count)
+            if (dest != draggingFrom) {
+                rows.removeAt(draggingFrom)
+                rows.add(dest, draggingFrom)
+            }
         }
+        rows.map { PinnedVisual.Group(it) }
     }
-    return rows.map { PinnedVisual.Group(it) }
+
+    if (collapsingRow == null) return baseVisuals
+
+    val (collapseIdx, collapseId) = collapsingRow
+    val targetIdx = collapseIdx.coerceIn(0, baseVisuals.size)
+    return buildList {
+        baseVisuals.forEachIndexed { i, v ->
+            if (i == targetIdx) add(PinnedVisual.CollapsingRow(collapseId))
+            add(v)
+        }
+        if (targetIdx == baseVisuals.size) add(PinnedVisual.CollapsingRow(collapseId))
+    }
 }
 
 internal data class DragVisual(

@@ -17,7 +17,7 @@ internal val ListHorizontalPadding = 16.dp
 internal val GroupSpacing = 8.dp
 internal val SearchBarHeight = 56.dp
 internal val SearchBarMargin = 16.dp
-internal const val AnimStiffness = 3200f
+internal const val AnimStiffness = 400f
 
 internal val SlotSpring = spring<Float>(
     dampingRatio = Spring.DampingRatioNoBouncy,
@@ -28,6 +28,18 @@ internal val ItemPlacementSpring = spring<IntOffset>(
     dampingRatio = Spring.DampingRatioNoBouncy,
     stiffness = AnimStiffness
 )
+
+internal val SlotDpSpring = spring<androidx.compose.ui.unit.Dp>(
+    dampingRatio = Spring.DampingRatioNoBouncy,
+    stiffness = AnimStiffness
+)
+
+internal val UiFadeSpec = androidx.compose.animation.core.tween<Float>(durationMillis = 240)
+internal val UiScaleSpring = spring<Float>(
+    dampingRatio = Spring.DampingRatioMediumBouncy,
+    stiffness = Spring.StiffnessLow
+)
+internal val UiDpSpec = androidx.compose.animation.core.tween<androidx.compose.ui.unit.Dp>(durationMillis = 240)
 
 @Composable
 fun HomeTheme(content: @Composable () -> Unit) {

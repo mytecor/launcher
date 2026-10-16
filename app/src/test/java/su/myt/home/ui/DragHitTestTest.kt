@@ -351,4 +351,25 @@ class DragHitTestTest {
             visuals
         )
     }
+
+    @Test
+    fun pinnedVisualsInsertsCollapsingRowAtExactOriginPosition() {
+        val visuals = pinnedVisuals(
+            count = 3,
+            draggingFrom = -1,
+            extracting = false,
+            insertRow = -1,
+            collapsingRow = Pair(1, "app-b")
+        )
+        assertEquals(4, visuals.size)
+        assertEquals(
+            listOf(
+                PinnedVisual.Group(0),
+                PinnedVisual.CollapsingRow("app-b"),
+                PinnedVisual.Group(1),
+                PinnedVisual.Group(2)
+            ),
+            visuals
+        )
+    }
 }

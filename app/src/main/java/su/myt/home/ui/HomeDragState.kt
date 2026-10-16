@@ -75,6 +75,7 @@ internal class HomeDragState(
     fun hitRows(): Map<Int, RowBounds> = dragLayout.ifEmpty { rowBounds.toMap() }
 
     fun pointerRootX(overlay: DragOverlay): Float = overlay.x + overlay.grabX
+    fun pointerRootY(overlay: DragOverlay): Float = overlay.y + overlay.grabY
 
     fun remainingCount(groupIndex: Int, overlay: DragOverlay): Int {
         val items = getItems()
@@ -129,7 +130,7 @@ internal class HomeDragState(
             hoverSlot = appIndex
         }
         drag = DragOverlay(
-            dragged, index, appIndex, root.x, width, root.x, root.y, grab.x, grab.y
+            dragged, index, appIndex, root.x, root.y, width, root.x, root.y, grab.x, grab.y
         )
     }
 
@@ -260,6 +261,7 @@ internal class HomeDragState(
         if (settling) return
         val hover = hoverGroup
         val rowSlot = insertRow
+        val extracting = getItems().getOrNull(current.from)?.isGroup == true
         val slot = if (hover >= 0) {
             hoverSlot
         } else {
@@ -289,9 +291,10 @@ internal class HomeDragState(
                     launch { wA.animateTo(toW, SlotSpring) { floatW = value } }
                     launch { eA.animateTo(0f, SlotSpring) { floatElev = value } }
                 }
-                revealDrop = true
                 commitDrop(current, hover, rowSlot, slot)
                 committed = true
+                // Render the real destination beneath the overlay before removing it.
+                revealDrop = true
                 hoverGroup = -1
                 insertRow = -1
                 withFrameNanos { }
