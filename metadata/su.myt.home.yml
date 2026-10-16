@@ -15,7 +15,7 @@ Binaries: https://github.com/mytecor/launcher/releases/download/v%v/Home-%v.apk
 Builds:
   - versionName: 2.0.0
     versionCode: 10
-    commit: 92d5f177dc5dbbcbeb54389c1eb91af8ca4f73c6
+    commit: fb41a80daf84292bb79bfe766686e750fc0d1173
     subdir: app
     gradle:
       - yes
