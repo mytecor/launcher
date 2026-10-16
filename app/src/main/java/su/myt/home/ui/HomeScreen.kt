@@ -32,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
@@ -64,7 +65,8 @@ fun HomeScreen(
     onExtractToGroup: (group: Int, app: Int, target: Int, slot: Int) -> Unit,
     onReorderInGroup: (group: Int, app: Int, slot: Int) -> Unit,
     onEmptyLongPress: () -> Unit,
-    onDragActiveChange: (Boolean) -> Unit
+    onDragActiveChange: (Boolean) -> Unit,
+    onOpenNotifications: () -> Unit = {}
 ) {
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -81,6 +83,29 @@ fun HomeScreen(
         onReorderInGroup = onReorderInGroup,
         onDragActiveChange = onDragActiveChange
     )
+
+    val density = LocalDensity.current
+    val swipeThresholdPx = remember(density) { with(density) { 48.dp.toPx() } }
+    val flingThresholdPx = remember(density) { with(density) { 400.dp.toPx() } }
+    val latestOpenNotifications = rememberUpdatedState(onOpenNotifications)
+    val latestSearching = rememberUpdatedState(isSearching)
+
+    val notificationSwipeConnection = remember {
+        NotificationSwipeConnection(
+            isSearching = { latestSearching.value },
+            isDragActive = { dragState.dragActive.value },
+            isAtTop = { !listState.canScrollForward },
+            swipeThresholdPx = { swipeThresholdPx },
+            flingThresholdPx = { flingThresholdPx },
+            onOpenNotifications = {
+                keyboard?.hide()
+                latestOpenNotifications.value()
+            }
+        )
+    }
+    LaunchedEffect(isSearching) {
+        if (isSearching) notificationSwipeConnection.reset()
+    }
 
     fun showIme() {
         focusRequester.requestFocus()
@@ -155,6 +180,7 @@ fun HomeScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(bottom = searchBarOverlap)
+                    .nestedScroll(notificationSwipeConnection)
             ) {
                 val measuredListWidth = constraints.maxWidth.toFloat()
                 val rowWidthPx = (measuredListWidth - 2f * with(LocalDensity.current) { ListHorizontalPadding.toPx() })
@@ -174,10 +200,11 @@ fun HomeScreen(
                             val pos = it.positionInRoot()
                             dragState.listRootX = pos.x
                             dragState.listWidth = it.size.width.toFloat()
-                        }
-                        .padding(horizontal = ListHorizontalPadding),
+                        },
                     contentPadding = PaddingValues(
+                        start = ListHorizontalPadding,
                         top = topContentPadding,
+                        end = ListHorizontalPadding,
                         bottom = bottomContentPadding
                     ),
                     verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)

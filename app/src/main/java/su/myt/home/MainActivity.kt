@@ -1,5 +1,6 @@
 package su.myt.home
 
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.os.Bundle
 import android.view.WindowInsets
@@ -110,7 +111,8 @@ class MainActivity : ComponentActivity() {
                                 reloadApps()
                             }
                         }
-                    }
+                    },
+                    onOpenNotifications = ::openNotificationShade
                 )
             }
         }
@@ -187,6 +189,19 @@ class MainActivity : ComponentActivity() {
             startActivity(chooser)
         } catch (_: Exception) {
             Toast.makeText(this, R.string.wallpaper_picker_unavailable, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun openNotificationShade() {
+        getSystemService(InputMethodManager::class.java)?.hideSoftInputFromWindow(window.decorView.windowToken, 0)
+        try {
+            @SuppressLint("WrongConstant")
+            val statusBarService = getSystemService("statusbar")
+            val statusBarManager = Class.forName("android.app.StatusBarManager")
+            val method = statusBarManager.getMethod("expandNotificationsPanel")
+            method.isAccessible = true
+            method.invoke(statusBarService)
+        } catch (_: Exception) {
         }
     }
 }
